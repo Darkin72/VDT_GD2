@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+dataset/*
+paper/
+BM.01.Phieu giao nhiem vu cong viec cho nhan su tap nghe.pdf
+tmp/
+solution/data_analysis.py
+solution/data_analysis.ipynb
+solution/data_analysis_narrative.py
+solution/data_analysis_report.txt
