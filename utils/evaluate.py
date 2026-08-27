@@ -1,5 +1,6 @@
 import argparse
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import math
 import sys
@@ -8,6 +9,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SOLUTION_ROOT = PROJECT_ROOT / "solution"
+if str(SOLUTION_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOLUTION_ROOT))
 
 from DPC.DCP import dehaze as dcp_dehaze
 
@@ -29,8 +36,8 @@ def image_files(directory):
     )
 
 
-def collect_i_haze(data_root):
-    base = data_root / "I-HAZE" / "test"
+def collect_i_haze(data_root, split):
+    base = data_root / "I-HAZE" / split
     clear_lookup = {
         path.stem: path for path in image_files(base / "clear")
     }
@@ -44,10 +51,10 @@ def collect_i_haze(data_root):
     return pairs
 
 
-def collect_o_hazy(data_root):
-    base = data_root / "O-HAZY"
+def collect_o_hazy(data_root, split):
+    base = data_root / "O-HAZY" / split
     clear_lookup = {
-        path.stem.lower(): path for path in image_files(base / "GT")
+        path.stem.lower(): path for path in image_files(base / "clear")
     }
     pairs = []
     for hazy_path in image_files(base / "hazy"):
@@ -59,11 +66,12 @@ def collect_o_hazy(data_root):
     return pairs
 
 
-def collect_sots(data_root, domain):
+def collect_sots(data_root, domain, split):
     base = (
         data_root
         / "Synthetic Objective Testing Set (SOTS) [RESIDE]"
         / domain
+        / split
     )
     clear_lookup = {
         path.stem: path for path in image_files(base / "clear")
@@ -86,8 +94,12 @@ def collect_sots(data_root, domain):
 DATASET_LOADERS = {
     "i-haze": collect_i_haze,
     "o-hazy": collect_o_hazy,
-    "sots-indoor": lambda root: collect_sots(root, "indoor"),
-    "sots-outdoor": lambda root: collect_sots(root, "outdoor"),
+    "sots-indoor": lambda root, split: collect_sots(
+        root, "indoor", split
+    ),
+    "sots-outdoor": lambda root, split: collect_sots(
+        root, "outdoor", split
+    ),
 }
 
 
@@ -270,6 +282,69 @@ def summarize(rows):
     return summaries
 
 
+def infer_data_origin(dataset_name):
+    return "synthetic" if dataset_name.startswith("sots-") else "real"
+
+
+def infer_fog_level(dataset_name, image_id):
+    if dataset_name not in {"sots-indoor", "sots-outdoor"}:
+        return ""
+    try:
+        level = float(image_id.rsplit("_", 1)[-1])
+    except ValueError:
+        return ""
+
+    if dataset_name == "sots-indoor":
+        if 1 <= level <= 4:
+            return "light"
+        if 5 <= level <= 8:
+            return "medium"
+        if 9 <= level <= 10:
+            return "heavy"
+    else:
+        if level <= 0.08:
+            return "light"
+        if level <= 0.12:
+            return "medium"
+        return "heavy"
+    return ""
+
+
+def summarize_origins(rows):
+    summaries = []
+    for data_origin in ("real", "synthetic"):
+        subset = [
+            row for row in rows if row["data_origin"] == data_origin
+        ]
+        if not subset:
+            continue
+        summary = summarize(subset)[-1]
+        summary["data_origin"] = data_origin
+        summary.pop("dataset")
+        summaries.append(summary)
+    return summaries
+
+
+def summarize_fog_levels(rows):
+    fog_order = ("light", "medium", "heavy")
+    summaries = []
+    datasets = ("sots-indoor", "sots-outdoor")
+    for dataset_name in datasets:
+        for fog_level in fog_order:
+            subset = [
+                row
+                for row in rows
+                if row["dataset"] == dataset_name
+                and row["fog_level"] == fog_level
+            ]
+            if not subset:
+                continue
+            summary = summarize(subset)[0]
+            summary["fog_level"] = fog_level
+            summaries.append(summary)
+    return summaries
+
+
 def write_csv(path, rows):
     if not rows:
         return
@@ -281,6 +356,52 @@ def write_csv(path, rows):
 
 def format_number(value):
     return "inf" if not math.isfinite(value) else f"{value:.4f}"
+
+
+def evaluate_pair(pair, solution, args, image_directory):
+    dataset_name, image_id, hazy_path, clear_path = pair
+    hazy_bgr = cv2.imread(str(hazy_path), cv2.IMREAD_COLOR)
+    clear_bgr = cv2.imread(str(clear_path), cv2.IMREAD_COLOR)
+    if hazy_bgr is None or clear_bgr is None:
+        return None, f"Bỏ qua ảnh không đọc được: {image_id}"
+
+    hazy_rgb = cv2.cvtColor(hazy_bgr, cv2.COLOR_BGR2RGB)
+    clear_rgb = cv2.cvtColor(clear_bgr, cv2.COLOR_BGR2RGB)
+    hazy_rgb, clear_rgb = resize_pair(hazy_rgb, clear_rgb, args.max_side)
+
+    start_time = time.perf_counter()
+    output_rgb = solution(hazy_rgb, args)
+    runtime_ms = (time.perf_counter() - start_time) * 1000
+
+    hazy_psnr = calculate_psnr(hazy_rgb, clear_rgb)
+    hazy_ssim = calculate_ssim(hazy_rgb, clear_rgb)
+    output_psnr = calculate_psnr(output_rgb, clear_rgb)
+    output_ssim = calculate_ssim(output_rgb, clear_rgb)
+    row = {
+        "dataset": dataset_name,
+        "image_id": image_id,
+        "data_origin": infer_data_origin(dataset_name),
+        "fog_level": infer_fog_level(dataset_name, image_id),
+        "width": clear_rgb.shape[1],
+        "height": clear_rgb.shape[0],
+        "hazy_psnr": hazy_psnr,
+        "hazy_ssim": hazy_ssim,
+        "output_psnr": output_psnr,
+        "output_ssim": output_ssim,
+        "psnr_improvement": output_psnr - hazy_psnr,
+        "ssim_improvement": output_ssim - hazy_ssim,
+        "runtime_ms": runtime_ms,
+        "hazy_path": str(hazy_path),
+        "clear_path": str(clear_path),
+    }
+
+    if args.save_images:
+        output_path = image_directory / f"{dataset_name}_{image_id}_{args.solution}.png"
+        cv2.imwrite(
+            str(output_path),
+            cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR),
+        )
+    return row, None
 
 
 def parse_args():
@@ -305,12 +426,24 @@ def parse_args():
         default=project_root / "dataset",
     )
     parser.add_argument(
+        "--split",
+        choices=["train", "val", "test"],
+        default="test",
+        help="Tập dữ liệu cần đánh giá (mặc định: test).",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path(__file__).resolve().parent / "evaluation_results",
     )
     parser.add_argument("--save-images", action="store_true")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--concurrent",
+        type=int,
+        default=1,
+        help="Số ảnh xử lý đồng thời.",
+    )
     parser.add_argument(
         "--max-side",
         type=int,
@@ -333,6 +466,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.concurrent < 1:
+        raise ValueError("--concurrent phải lớn hơn hoặc bằng 1.")
     selected_datasets = (
         list(DATASET_LOADERS)
         if "all" in args.dataset
@@ -340,94 +475,108 @@ def main():
     )
     pairs = []
     for dataset_name in selected_datasets:
-        dataset_pairs = DATASET_LOADERS[dataset_name](args.data_root)
+        dataset_pairs = DATASET_LOADERS[dataset_name](
+            args.data_root,
+            args.split,
+        )
         if args.limit > 0:
             dataset_pairs = dataset_pairs[: args.limit]
         pairs.extend(dataset_pairs)
 
     if not pairs:
         raise RuntimeError(
-            "Không tìm thấy cặp ảnh test nào. Kiểm tra --data-root."
+            f"Không tìm thấy cặp ảnh nào trong split {args.split}. "
+            "Kiểm tra --data-root và --split."
         )
 
-    run_directory = args.output_dir / args.solution
+    run_directory = args.output_dir / args.solution / args.split
     image_directory = run_directory / "images"
     run_directory.mkdir(parents=True, exist_ok=True)
     if args.save_images:
         image_directory.mkdir(parents=True, exist_ok=True)
 
+    total = len(pairs)
+    progress = tqdm(
+        total=total,
+        desc=f"Đánh giá {args.solution}",
+        unit="ảnh",
+    )
     solution = SOLUTIONS[args.solution]
     rows = []
-    total = len(pairs)
-
-    for index, (dataset_name, image_id, hazy_path, clear_path) in enumerate(
-        pairs, start=1
-    ):
-        hazy_bgr = cv2.imread(str(hazy_path), cv2.IMREAD_COLOR)
-        clear_bgr = cv2.imread(str(clear_path), cv2.IMREAD_COLOR)
-        if hazy_bgr is None or clear_bgr is None:
-            print(f"[{index}/{total}] Bỏ qua ảnh không đọc được: {image_id}")
-            continue
-
-        hazy_rgb = cv2.cvtColor(hazy_bgr, cv2.COLOR_BGR2RGB)
-        clear_rgb = cv2.cvtColor(clear_bgr, cv2.COLOR_BGR2RGB)
-        hazy_rgb, clear_rgb = resize_pair(
-            hazy_rgb, clear_rgb, args.max_side
+    if args.concurrent == 1:
+        completed = (
+            evaluate_pair(pair, solution, args, image_directory)
+            for pair in pairs
         )
-
-        start_time = time.perf_counter()
-        output_rgb = solution(hazy_rgb, args)
-        runtime_ms = (time.perf_counter() - start_time) * 1000
-
-        hazy_psnr = calculate_psnr(hazy_rgb, clear_rgb)
-        hazy_ssim = calculate_ssim(hazy_rgb, clear_rgb)
-        output_psnr = calculate_psnr(output_rgb, clear_rgb)
-        output_ssim = calculate_ssim(output_rgb, clear_rgb)
-
-        row = {
-            "dataset": dataset_name,
-            "image_id": image_id,
-            "width": clear_rgb.shape[1],
-            "height": clear_rgb.shape[0],
-            "hazy_psnr": hazy_psnr,
-            "hazy_ssim": hazy_ssim,
-            "output_psnr": output_psnr,
-            "output_ssim": output_ssim,
-            "psnr_improvement": output_psnr - hazy_psnr,
-            "ssim_improvement": output_ssim - hazy_ssim,
-            "runtime_ms": runtime_ms,
-            "hazy_path": str(hazy_path),
-            "clear_path": str(clear_path),
-        }
-        rows.append(row)
-
-        if args.save_images:
-            output_path = (
-                image_directory
-                / f"{dataset_name}_{image_id}_{args.solution}.png"
+        for row, error in completed:
+            progress.update(1)
+            if error:
+                progress.write(error)
+                continue
+            rows.append(row)
+            progress.set_postfix(
+                dataset=row["dataset"],
+                psnr=f"{row['output_psnr']:.2f}",
+                ssim=f"{row['output_ssim']:.3f}",
+                refresh=False,
             )
-            cv2.imwrite(
-                str(output_path),
-                cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR),
-            )
+    else:
+        with ThreadPoolExecutor(max_workers=args.concurrent) as executor:
+            futures = [
+                executor.submit(
+                    evaluate_pair,
+                    pair,
+                    solution,
+                    args,
+                    image_directory,
+                )
+                for pair in pairs
+            ]
+            for future in as_completed(futures):
+                row, error = future.result()
+                progress.update(1)
+                if error:
+                    progress.write(error)
+                    continue
+                rows.append(row)
+                progress.set_postfix(
+                    dataset=row["dataset"],
+                    psnr=f"{row['output_psnr']:.2f}",
+                    ssim=f"{row['output_ssim']:.3f}",
+                    refresh=False,
+                )
+    progress.close()
 
-        print(
-            f"[{index}/{total}] {dataset_name}/{image_id}: "
-            f"PSNR={output_psnr:.4f} dB, "
-            f"SSIM={output_ssim:.4f}, "
-            f"time={runtime_ms:.1f} ms"
-        )
-
+    rows.sort(key=lambda row: (row["dataset"], row["image_id"]))
     summaries = summarize(rows)
+    origin_summaries = summarize_origins(rows)
+    fog_summaries = summarize_fog_levels(rows)
     write_csv(run_directory / "per_image.csv", rows)
     write_csv(run_directory / "summary.csv", summaries)
+    write_csv(run_directory / "origin_summary.csv", origin_summaries)
+    write_csv(run_directory / "fog_summary.csv", fog_summaries)
 
     configuration = {
         "solution": args.solution,
         "datasets": selected_datasets,
+        "split": args.split,
         "data_root": str(args.data_root.resolve()),
         "max_side": args.max_side,
         "save_images": args.save_images,
+        "concurrent": args.concurrent,
+        "fog_levels": {
+            "sots_indoor": {
+                "light": "hậu tố _1 đến _4",
+                "medium": "hậu tố _5 đến _8",
+                "heavy": "hậu tố _9 đến _10",
+            },
+            "sots_outdoor": {
+                "light": "beta = 0.08",
+                "medium": "beta = 0.12",
+                "heavy": "beta = 0.16 hoặc 0.20",
+            },
+            "real_datasets": "I-HAZE và O-HAZY không có nhãn mức sương.",
+        },
         "parameters": {
             "patch_size": args.patch_size,
             "omega": args.omega,
@@ -457,6 +606,40 @@ def main():
             f"{format_number(summary['ssim_improvement']):>10} "
             f"{summary['mean_runtime_ms']:>12.2f}"
         )
+
+    if origin_summaries:
+        print("\nKẾT QUẢ THEO NGUỒN DỮ LIỆU")
+        print(
+            f"{'Nguồn':<16} {'N':>5} {'PSNR':>10} {'SSIM':>10} "
+            f"{'ΔPSNR':>10} {'ΔSSIM':>10} {'ms/ảnh':>12}"
+        )
+        for summary in origin_summaries:
+            print(
+                f"{summary['data_origin']:<16} {summary['images']:>5} "
+                f"{format_number(summary['output_psnr']):>10} "
+                f"{format_number(summary['output_ssim']):>10} "
+                f"{format_number(summary['psnr_improvement']):>10} "
+                f"{format_number(summary['ssim_improvement']):>10} "
+                f"{summary['mean_runtime_ms']:>12.2f}"
+            )
+
+    if fog_summaries:
+        print("\nKẾT QUẢ THEO MỨC SƯƠNG SOTS")
+        print(
+            f"{'Dataset':<16} {'Mức':<8} {'N':>5} {'PSNR':>10} "
+            f"{'SSIM':>10} {'ΔPSNR':>10} {'ΔSSIM':>10} {'ms/ảnh':>12}"
+        )
+        for summary in fog_summaries:
+            print(
+                f"{summary['dataset']:<16} "
+                f"{summary['fog_level']:<8} "
+                f"{summary['images']:>5} "
+                f"{format_number(summary['output_psnr']):>10} "
+                f"{format_number(summary['output_ssim']):>10} "
+                f"{format_number(summary['psnr_improvement']):>10} "
+                f"{format_number(summary['ssim_improvement']):>10} "
+                f"{summary['mean_runtime_ms']:>12.2f}"
+            )
     print(f"\nĐã lưu kết quả tại: {run_directory.resolve()}")
 
 

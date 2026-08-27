@@ -6,4 +6,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "opencv-python>=5.0.0.93",
+    "tqdm>=4.67.1",
 ]
