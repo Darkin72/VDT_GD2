@@ -229,6 +229,73 @@ SOLUTIONS = {
 }
 
 
+_GRID_DEHAZENET_MODEL = None
+_GRID_DEHAZENET_CONFIG = None
+
+
+def run_griddehazenet(image, args):
+    """Run the local GridDehazeNet checkpoint on an RGB uint8 image."""
+    global _GRID_DEHAZENET_MODEL, _GRID_DEHAZENET_CONFIG
+
+    import torch
+
+    device_name = args.grid_device
+    if device_name is None:
+        device_name = "cuda" if torch.cuda.is_available() else "cpu"
+    config = (
+        str(args.grid_checkpoint), device_name, args.grid_height,
+        args.grid_width, args.grid_dense_layers, args.grid_growth_rate,
+    )
+    if _GRID_DEHAZENET_MODEL is None or _GRID_DEHAZENET_CONFIG != config:
+        grid_root = PROJECT_ROOT / "solution" / "GridDehazeNet"
+        if str(grid_root) not in sys.path:
+            sys.path.insert(0, str(grid_root))
+        from model import GridDehazeNet
+
+        device = torch.device(device_name)
+        model = GridDehazeNet(
+            height=args.grid_height,
+            width=args.grid_width,
+            num_dense_layer=args.grid_dense_layers,
+            growth_rate=args.grid_growth_rate,
+        )
+        try:
+            checkpoint = torch.load(
+                args.grid_checkpoint, map_location=device, weights_only=True
+            )
+        except TypeError:  # PyTorch < 2.0 has no ``weights_only`` argument.
+            checkpoint = torch.load(args.grid_checkpoint, map_location=device)
+        if any(key.startswith("module.") for key in checkpoint):
+            checkpoint = {
+                key.removeprefix("module."): value
+                for key, value in checkpoint.items()
+            }
+        model.load_state_dict(checkpoint)
+        model.to(device).eval()
+        _GRID_DEHAZENET_MODEL = model
+        _GRID_DEHAZENET_CONFIG = config
+
+    height, width = image.shape[:2]
+    padded_height = (height + 3) // 4 * 4
+    padded_width = (width + 3) // 4 * 4
+    if (padded_height, padded_width) != (height, width):
+        image = cv2.copyMakeBorder(
+            image, 0, padded_height - height, 0, padded_width - width,
+            cv2.BORDER_REFLECT_101,
+        )
+    # GridDehazeNet was trained with torchvision Normalize(0.5, 0.5).
+    tensor = torch.from_numpy(image.astype(np.float32) / 255.0 * 2.0 - 1.0)
+    tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+    with torch.inference_mode():
+        output = _GRID_DEHAZENET_MODEL(tensor.to(device_name))
+    output = output.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    output = output[:height, :width].clip(0, 1) * 255
+    return output.round().astype(np.uint8)
+
+
+SOLUTIONS["griddehazenet"] = run_griddehazenet
+
+
 def finite_mean(values):
     finite_values = [value for value in values if math.isfinite(value)]
     return float(np.mean(finite_values)) if finite_values else float("inf")
@@ -480,6 +547,21 @@ def parse_args():
     parser.add_argument("--cap-beta", type=float, default=1.0)
     parser.add_argument("--cap-t-min", type=float, default=0.1)
     parser.add_argument("--cap-t-max", type=float, default=0.9)
+    parser.add_argument(
+        "--grid-checkpoint",
+        type=Path,
+        default=project_root / "solution" / "GridDehazeNet" / "indoor_haze_best_3_6",
+        help="Checkpoint GridDehazeNet cần nạp.",
+    )
+    parser.add_argument(
+        "--grid-device",
+        default=None,
+        help="Thiết bị chạy GridDehazeNet, ví dụ cpu hoặc cuda.",
+    )
+    parser.add_argument("--grid-height", type=int, default=3)
+    parser.add_argument("--grid-width", type=int, default=6)
+    parser.add_argument("--grid-dense-layers", type=int, default=4)
+    parser.add_argument("--grid-growth-rate", type=int, default=16)
     return parser.parse_args()
 
 
@@ -487,6 +569,9 @@ def main():
     args = parse_args()
     if args.concurrent < 1:
         raise ValueError("--concurrent phải lớn hơn hoặc bằng 1.")
+    if args.solution == "griddehazenet" and args.concurrent != 1:
+        raise ValueError("GridDehazeNet chỉ hỗ trợ --concurrent 1 để dùng một model an toàn.")
+    args.grid_checkpoint = args.grid_checkpoint.resolve()
     selected_datasets = (
         list(DATASET_LOADERS)
         if "all" in args.dataset
@@ -608,6 +693,12 @@ def main():
             "cap_beta": args.cap_beta,
             "cap_t_min": args.cap_t_min,
             "cap_t_max": args.cap_t_max,
+            "grid_checkpoint": str(args.grid_checkpoint),
+            "grid_device": args.grid_device,
+            "grid_height": args.grid_height,
+            "grid_width": args.grid_width,
+            "grid_dense_layers": args.grid_dense_layers,
+            "grid_growth_rate": args.grid_growth_rate,
         },
     }
     with (run_directory / "config.json").open(
