@@ -18,3 +18,5 @@ solution/data_analysis.ipynb
 solution/data_analysis_narrative.py
 solution/data_analysis_report.txt
 utils/evaluation_results/*
+solution/report/*
+outputs/*

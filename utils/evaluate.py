@@ -17,6 +17,7 @@ if str(SOLUTION_ROOT) not in sys.path:
     sys.path.insert(0, str(SOLUTION_ROOT))
 
 from DPC.DCP import dehaze as dcp_dehaze
+from CAP.CAP import dehaze as cap_dehaze
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -209,7 +210,21 @@ def run_dcp(image, args):
     )[0]
 
 
+def run_cap(image, args):
+    return cap_dehaze(
+        image,
+        radius=args.cap_radius,
+        beta=args.cap_beta,
+        t_min=args.cap_t_min,
+        t_max=args.cap_t_max,
+        top_percent=args.top_percent,
+        guided_radius=args.guided_radius,
+        guided_eps=args.guided_eps,
+    )[0]
+
+
 SOLUTIONS = {
+    "cap": run_cap,
     "dcp": run_dcp,
 }
 
@@ -461,6 +476,10 @@ def parse_args():
     )
     parser.add_argument("--guided-radius", type=int, default=40)
     parser.add_argument("--guided-eps", type=float, default=1e-3)
+    parser.add_argument("--cap-radius", type=int, default=15)
+    parser.add_argument("--cap-beta", type=float, default=1.0)
+    parser.add_argument("--cap-t-min", type=float, default=0.1)
+    parser.add_argument("--cap-t-max", type=float, default=0.9)
     return parser.parse_args()
 
 
@@ -585,6 +604,10 @@ def main():
             "guided_filter": args.guided_filter,
             "guided_radius": args.guided_radius,
             "guided_eps": args.guided_eps,
+            "cap_radius": args.cap_radius,
+            "cap_beta": args.cap_beta,
+            "cap_t_min": args.cap_t_min,
+            "cap_t_max": args.cap_t_max,
         },
     }
     with (run_directory / "config.json").open(
