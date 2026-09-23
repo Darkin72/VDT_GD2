@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from excel_report import export_excel_reports
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
@@ -76,12 +78,15 @@ def run_group(args, name, *datasets):
     performance_path = output_dir / "griddehazenet" / args.split / "performance.json"
     with performance_path.open(encoding="utf-8") as file:
         performance = json.load(file)
+    per_image_path = output_dir / "griddehazenet" / args.split / "per_image.csv"
+    with per_image_path.open(newline="", encoding="utf-8-sig") as file:
+        per_image_rows = list(csv.DictReader(file))
     summaries = {}
     for filename in ("origin_summary.csv", "fog_summary.csv"):
         summary_path = output_dir / "griddehazenet" / args.split / filename
         with summary_path.open(newline="", encoding="utf-8-sig") as file:
             summaries[filename] = list(csv.DictReader(file))
-    return rows, performance, summaries
+    return rows, performance, summaries, per_image_rows
 
 
 def main():
@@ -90,10 +95,12 @@ def main():
     all_rows = {}
     performances = {}
     domain_summaries = {"origin_summary.csv": [], "fog_summary.csv": []}
+    all_per_image_rows = []
     for name, *datasets in DATASET_GROUPS:
-        rows, performance, summaries = run_group(args, name, *datasets)
+        rows, performance, summaries, per_image_rows = run_group(args, name, *datasets)
         all_rows.update(rows)
         performances[name] = performance
+        all_per_image_rows.extend(per_image_rows)
         for filename, values in summaries.items():
             domain_summaries[filename].extend(values)
 
@@ -121,9 +128,15 @@ def main():
     performance_path = args.output_dir / f"performance_{args.split}.json"
     with performance_path.open("w", encoding="utf-8") as file:
         json.dump(performances, file, ensure_ascii=False, indent=2)
+    excel_paths = export_excel_reports(
+        "GridDehazeNet", all_per_image_rows, args.output_dir
+    )
 
     print(f"\nĐã lưu bảng tổng hợp tại: {output_path.resolve()}")
     print(f"Đã lưu thông tin hardware/FPS tại: {performance_path.resolve()}")
+    print("Đã lưu ba báo cáo Excel:")
+    for path in excel_paths.values():
+        print(f"- {path.resolve()}")
     print("\nKẾT QUẢ CHÍNH")
     print("| Dataset | PSNR | SSIM | ms / ảnh |")
     print("|---|---:|---:|---:|")

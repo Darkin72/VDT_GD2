@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+from excel_report import export_excel_reports
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SOLUTION_ROOT = PROJECT_ROOT / "solution"
 if str(SOLUTION_ROOT) not in sys.path:
@@ -743,6 +745,14 @@ def main():
     write_csv(run_directory / "summary.csv", summaries)
     write_csv(run_directory / "origin_summary.csv", origin_summaries)
     write_csv(run_directory / "fog_summary.csv", fog_summaries)
+    solution_labels = {
+        "cap": "CAP",
+        "dcp": "DCP",
+        "griddehazenet": "GridDehazeNet",
+    }
+    excel_paths = export_excel_reports(
+        solution_labels[args.solution], rows, run_directory
+    )
 
     configuration = {
         "solution": args.solution,
@@ -855,6 +865,9 @@ def main():
                 f"{summary['mean_runtime_ms']:>12.2f}"
             )
     print(f"\nĐã lưu kết quả tại: {run_directory.resolve()}")
+    print("Đã lưu báo cáo Excel:")
+    for path in excel_paths.values():
+        print(f"- {path.resolve()}")
 
 
 if __name__ == "__main__":
