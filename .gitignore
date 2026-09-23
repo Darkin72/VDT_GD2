@@ -9,7 +9,6 @@ wheels/
 # Virtual environments
 .venv
 
-dataset/*
 paper/
 BM.01.Phieu giao nhiem vu cong viec cho nhan su tap nghe.pdf
 tmp/
