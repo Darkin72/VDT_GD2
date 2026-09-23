@@ -76,7 +76,12 @@ def run_group(args, name, *datasets):
     performance_path = output_dir / "griddehazenet" / args.split / "performance.json"
     with performance_path.open(encoding="utf-8") as file:
         performance = json.load(file)
-    return rows, performance
+    summaries = {}
+    for filename in ("origin_summary.csv", "fog_summary.csv"):
+        summary_path = output_dir / "griddehazenet" / args.split / filename
+        with summary_path.open(newline="", encoding="utf-8-sig") as file:
+            summaries[filename] = list(csv.DictReader(file))
+    return rows, performance, summaries
 
 
 def main():
@@ -84,10 +89,13 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     all_rows = {}
     performances = {}
+    domain_summaries = {"origin_summary.csv": [], "fog_summary.csv": []}
     for name, *datasets in DATASET_GROUPS:
-        rows, performance = run_group(args, name, *datasets)
+        rows, performance, summaries = run_group(args, name, *datasets)
         all_rows.update(rows)
         performances[name] = performance
+        for filename, values in summaries.items():
+            domain_summaries[filename].extend(values)
 
     labels = {
         "sots-indoor": "SOTS-Indoor",
@@ -98,10 +106,17 @@ def main():
     output_path = args.output_dir / f"summary_{args.split}.csv"
     with output_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.writer(file)
-        writer.writerow(("Dataset", "PSNR", "SSIM", "Images"))
+        writer.writerow(("Dataset", "PSNR", "SSIM", "ms / ảnh", "Images"))
         for dataset in ("sots-indoor", "sots-outdoor", "o-hazy", "i-haze"):
             row = all_rows[dataset]
-            writer.writerow((labels[dataset], row["output_psnr"], row["output_ssim"], row["images"]))
+            writer.writerow((labels[dataset], row["output_psnr"], row["output_ssim"], row["mean_runtime_ms"], row["images"]))
+
+    for filename, values in domain_summaries.items():
+        with (args.output_dir / filename).open("w", newline="", encoding="utf-8-sig") as file:
+            if values:
+                writer = csv.DictWriter(file, fieldnames=list(values[0]))
+                writer.writeheader()
+                writer.writerows(values)
 
     performance_path = args.output_dir / f"performance_{args.split}.json"
     with performance_path.open("w", encoding="utf-8") as file:
@@ -109,11 +124,24 @@ def main():
 
     print(f"\nĐã lưu bảng tổng hợp tại: {output_path.resolve()}")
     print(f"Đã lưu thông tin hardware/FPS tại: {performance_path.resolve()}")
-    print("| Dataset | PSNR | SSIM | Images |")
+    print("\nKẾT QUẢ CHÍNH")
+    print("| Dataset | PSNR | SSIM | ms / ảnh |")
     print("|---|---:|---:|---:|")
     for dataset in ("sots-indoor", "sots-outdoor", "o-hazy", "i-haze"):
         row = all_rows[dataset]
-        print(f"| {labels[dataset]} | {float(row['output_psnr']):.4f} | {float(row['output_ssim']):.4f} | {row['images']} |")
+        print(f"| {labels[dataset]} | {float(row['output_psnr']):.4f} | {float(row['output_ssim']):.4f} | {float(row['mean_runtime_ms']):.2f} |")
+
+    print("\n1. REAL / SYNTHETIC")
+    print("| Nguồn | PSNR | SSIM | ms / ảnh |")
+    print("|---|---:|---:|---:|")
+    for row in domain_summaries["origin_summary.csv"]:
+        print(f"| {row['data_origin']} | {float(row['output_psnr']):.4f} | {float(row['output_ssim']):.4f} | {float(row['mean_runtime_ms']):.2f} |")
+
+    print("\n2. FOG LEVEL")
+    print("| Dataset | Fog level | PSNR | SSIM | ms / ảnh |")
+    print("|---|---|---:|---:|---:|")
+    for row in domain_summaries["fog_summary.csv"]:
+        print(f"| {row['dataset']} | {row['fog_level']} | {float(row['output_psnr']):.4f} | {float(row['output_ssim']):.4f} | {float(row['mean_runtime_ms']):.2f} |")
 
 
 if __name__ == "__main__":
