@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -72,15 +73,21 @@ def run_group(args, name, *datasets):
             for row in csv.DictReader(file):
                 if row["dataset"] == dataset:
                     rows[dataset] = row
-    return rows
+    performance_path = output_dir / "griddehazenet" / args.split / "performance.json"
+    with performance_path.open(encoding="utf-8") as file:
+        performance = json.load(file)
+    return rows, performance
 
 
 def main():
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     all_rows = {}
+    performances = {}
     for name, *datasets in DATASET_GROUPS:
-        all_rows.update(run_group(args, name, *datasets))
+        rows, performance = run_group(args, name, *datasets)
+        all_rows.update(rows)
+        performances[name] = performance
 
     labels = {
         "sots-indoor": "SOTS-Indoor",
@@ -96,7 +103,12 @@ def main():
             row = all_rows[dataset]
             writer.writerow((labels[dataset], row["output_psnr"], row["output_ssim"], row["images"]))
 
+    performance_path = args.output_dir / f"performance_{args.split}.json"
+    with performance_path.open("w", encoding="utf-8") as file:
+        json.dump(performances, file, ensure_ascii=False, indent=2)
+
     print(f"\nĐã lưu bảng tổng hợp tại: {output_path.resolve()}")
+    print(f"Đã lưu thông tin hardware/FPS tại: {performance_path.resolve()}")
     print("| Dataset | PSNR | SSIM | Images |")
     print("|---|---:|---:|---:|")
     for dataset in ("sots-indoor", "sots-outdoor", "o-hazy", "i-haze"):

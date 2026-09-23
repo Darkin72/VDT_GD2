@@ -3,7 +3,10 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import math
+import os
+import platform
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -440,6 +443,64 @@ def format_number(value):
     return "inf" if not math.isfinite(value) else f"{value:.4f}"
 
 
+def start_resource_monitor():
+    """Sample process RAM so the report includes a run-level peak."""
+    try:
+        import psutil
+    except ImportError:
+        return None, None
+    process = psutil.Process(os.getpid())
+    process.cpu_percent(None)
+    sample = {"peak_rss": process.memory_info().rss, "cpu_percent": []}
+    stop_event = threading.Event()
+
+    def monitor():
+        while not stop_event.wait(0.2):
+            sample["peak_rss"] = max(sample["peak_rss"], process.memory_info().rss)
+            sample["cpu_percent"].append(process.cpu_percent(None))
+
+    thread = threading.Thread(target=monitor, daemon=True)
+    thread.start()
+    return stop_event, (thread, process, sample)
+
+
+def collect_hardware(args, monitor_state):
+    info = {
+        "os": platform.platform(),
+        "python": platform.python_version(),
+        "cpu": platform.processor() or platform.machine(),
+        "cpu_count": os.cpu_count(),
+    }
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        info["ram_total_gb"] = round(psutil.virtual_memory().total / 1024**3, 2)
+        info["ram_end_gb"] = round(process.memory_info().rss / 1024**3, 2)
+        if monitor_state:
+            info["ram_peak_gb"] = round(monitor_state[2]["peak_rss"] / 1024**3, 2)
+            cpu_samples = monitor_state[2]["cpu_percent"]
+            if cpu_samples:
+                info["process_cpu_avg_percent"] = round(float(np.mean(cpu_samples)), 2)
+                info["process_cpu_peak_percent"] = round(float(np.max(cpu_samples)), 2)
+    except ImportError:
+        info["psutil"] = "not installed; RAM metrics unavailable"
+
+    if args.solution == "griddehazenet":
+        try:
+            import torch
+            device = args.grid_device or ("cuda" if torch.cuda.is_available() else "cpu")
+            info["device"] = device
+            if device.startswith("cuda") and torch.cuda.is_available():
+                index = torch.device(device).index or torch.cuda.current_device()
+                info["gpu"] = torch.cuda.get_device_name(index)
+                info["gpu_vram_total_gb"] = round(torch.cuda.get_device_properties(index).total_memory / 1024**3, 2)
+                info["gpu_vram_peak_allocated_gb"] = round(torch.cuda.max_memory_allocated(index) / 1024**3, 2)
+                info["gpu_vram_peak_reserved_gb"] = round(torch.cuda.max_memory_reserved(index) / 1024**3, 2)
+        except (ImportError, RuntimeError) as error:
+            info["gpu_error"] = str(error)
+    return info
+
+
 def evaluate_pair(pair, solution, args, image_directory):
     dataset_name, image_id, hazy_path, clear_path = pair
     hazy_bgr = cv2.imread(str(hazy_path), cv2.IMREAD_COLOR)
@@ -572,6 +633,13 @@ def main():
     if args.solution == "griddehazenet" and args.concurrent != 1:
         raise ValueError("GridDehazeNet chỉ hỗ trợ --concurrent 1 để dùng một model an toàn.")
     args.grid_checkpoint = args.grid_checkpoint.resolve()
+    if args.solution == "griddehazenet":
+        try:
+            import torch
+            if (args.grid_device or "cuda").startswith("cuda") and torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+        except ImportError:
+            pass
     selected_datasets = (
         list(DATASET_LOADERS)
         if "all" in args.dataset
@@ -607,6 +675,8 @@ def main():
     )
     solution = SOLUTIONS[args.solution]
     rows = []
+    run_start = time.perf_counter()
+    monitor_stop, monitor_state = start_resource_monitor()
     if args.concurrent == 1:
         completed = (
             evaluate_pair(pair, solution, args, image_directory)
@@ -650,6 +720,20 @@ def main():
                     refresh=False,
                 )
     progress.close()
+    if monitor_stop is not None:
+        monitor_stop.set()
+        monitor_state[0].join(timeout=1)
+    elapsed_seconds = time.perf_counter() - run_start
+    hardware = collect_hardware(args, monitor_state)
+    performance = {
+        "images_requested": total,
+        "images_completed": len(rows),
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "fps": round(len(rows) / elapsed_seconds, 4) if elapsed_seconds else 0.0,
+        "mean_image_runtime_ms": round(float(np.mean([row["runtime_ms"] for row in rows])), 3) if rows else None,
+        "mean_inference_fps": round(1000.0 / float(np.mean([row["runtime_ms"] for row in rows])), 4) if rows else 0.0,
+        "hardware": hardware,
+    }
 
     rows.sort(key=lambda row: (row["dataset"], row["image_id"]))
     summaries = summarize(rows)
@@ -705,6 +789,8 @@ def main():
         "w", encoding="utf-8"
     ) as file:
         json.dump(configuration, file, ensure_ascii=False, indent=2)
+    with (run_directory / "performance.json").open("w", encoding="utf-8") as file:
+        json.dump(performance, file, ensure_ascii=False, indent=2)
 
     print("\nKẾT QUẢ TỔNG HỢP")
     print(
@@ -720,6 +806,20 @@ def main():
             f"{format_number(summary['ssim_improvement']):>10} "
             f"{summary['mean_runtime_ms']:>12.2f}"
         )
+    print(
+        f"\nHardware: {hardware.get('cpu', 'unknown')} | CPU cores: {hardware.get('cpu_count', 'unknown')}"
+    )
+    if hardware.get("gpu"):
+        print(
+            f"GPU: {hardware['gpu']} | VRAM peak allocated: "
+            f"{hardware.get('gpu_vram_peak_allocated_gb', 0):.2f} GB / "
+            f"{hardware.get('gpu_vram_total_gb', 0):.2f} GB"
+        )
+    print(
+        f"RAM peak: {hardware.get('ram_peak_gb', 'unknown')} GB | "
+        f"FPS toàn bộ run: {performance['fps']:.4f} | "
+        f"FPS suy luận trung bình: {performance['mean_inference_fps']:.4f}"
+    )
 
     if origin_summaries:
         print("\nKẾT QUẢ THEO NGUỒN DỮ LIỆU")
