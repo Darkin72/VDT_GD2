@@ -48,8 +48,11 @@ def load_depth_model(model_name, device):
 def depth_channels(images, depth_paths, depth_pipeline):
     if depth_pipeline is not None:
         processor, model, device = depth_pipeline
-        inputs = processor(images=images, padding=True, return_tensors="pt")
-        inputs = {key: value.to(device) for key, value in inputs.items()}
+        pixel_values = [processor(images=image, return_tensors="pt")["pixel_values"][0] for image in images]
+        target_h = max(value.shape[1] for value in pixel_values)
+        target_w = max(value.shape[2] for value in pixel_values)
+        pixel_values = [F.pad(value, (0, target_w - value.shape[2], 0, target_h - value.shape[1])) for value in pixel_values]
+        inputs = {"pixel_values": torch.stack(pixel_values).to(device)}
         with torch.inference_mode():
             predictions = model(**inputs).predicted_depth
         depths = []
@@ -112,7 +115,7 @@ def parse_args():
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize. 0 preserves the original resolution.")
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "udpnet")
     parser.add_argument("--save-images", action="store_true")

@@ -61,7 +61,7 @@ def parse_args():
     parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2" / "OTS-B.pth")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize; 0 keeps original resolution.")
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "mb_taylorformerv2")
     parser.add_argument("--save-images", action="store_true")
