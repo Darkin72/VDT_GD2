@@ -22,18 +22,29 @@ from evaluation_hardware import write_hardware_report
 from basicsr.models.archs.MB_TaylorFormerV2 import MB_TaylorFormer
 
 
-def load_model(args):
+def load_model(args, checkpoint_path):
     import yaml
 
     config_path = MB_ROOT / "Dehazing" / "Options" / f"MB-TaylorFormerV2-{args.size}.yml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config["network_g"].pop("type", None)
     model = MB_TaylorFormer(**config["network_g"])
-    checkpoint = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location=args.device, weights_only=False)
     state = checkpoint.get("params", checkpoint.get("state_dict", checkpoint))
     state = {key.removeprefix("module."): value for key, value in state.items()}
     model.load_state_dict(state, strict=False)
     return model.to(args.device).eval()
+
+
+def checkpoint_map(args):
+    base = args.checkpoint_dir
+    suffix = args.size
+    return {
+        "sots-indoor": base / f"ITS-{suffix}.pth",
+        "sots-outdoor": base / f"OTS-{suffix}.pth",
+        "o-hazy": base / f"OTS-{suffix}.pth",
+        "i-haze": base / f"ITS-{suffix}.pth",
+    }
 
 
 def infer_batch(model, images, device):
@@ -58,7 +69,7 @@ def parse_args():
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "dataset")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--size", choices=("B", "L"), default="B")
-    parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2" / "OTS-B.pth")
+    parser.add_argument("--checkpoint-dir", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize; 0 keeps original resolution.")
     parser.add_argument("--batch-size", type=int, default=2)
@@ -73,32 +84,40 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     image_dir = args.output_dir / "images"
     image_dir.mkdir(exist_ok=True)
-    model = load_model(args)
     pairs = []
     for dataset in DATASET_LOADERS:
         values = DATASET_LOADERS[dataset](args.data_root, args.split)
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
+    models = {}
+    checkpoints = checkpoint_map(args)
     inference_start = time.perf_counter()
-    for offset in range(0, len(pairs), args.batch_size):
-        batch_pairs = pairs[offset:offset + args.batch_size]
-        prepared = []
-        for item in batch_pairs:
-            dataset, image_id, hazy_path, clear_path = item
-            hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
-            clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
-            hazy, clear = resize_pair(hazy, clear, args.max_side)
-            prepared.append((item, hazy, clear))
-        if args.device.startswith("cuda"): torch.cuda.synchronize()
-        start = time.perf_counter()
-        outputs = infer_batch(model, [item[1] for item in prepared], args.device)
-        if args.device.startswith("cuda"): torch.cuda.synchronize()
-        runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared)
-        for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
-            row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear), "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear), "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear), "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear), "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
-            rows.append(row)
-            if args.save_images: cv2.imwrite(str(image_dir / f"{dataset}_{image_id}_mb_taylorformerv2.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
-            print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
+    for dataset_name in DATASET_LOADERS:
+        dataset_pairs = [item for item in pairs if item[0] == dataset_name]
+        for offset in range(0, len(dataset_pairs), args.batch_size):
+            batch_pairs = dataset_pairs[offset:offset + args.batch_size]
+            checkpoint_path = checkpoints[dataset_name]
+            if dataset_name not in models:
+                if not checkpoint_path.exists():
+                    raise FileNotFoundError(f"Missing checkpoint for {dataset_name}: {checkpoint_path}")
+                models[dataset_name] = load_model(args, checkpoint_path)
+            prepared = []
+            for item in batch_pairs:
+                dataset, image_id, hazy_path, clear_path = item
+                hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
+                clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
+                hazy, clear = resize_pair(hazy, clear, args.max_side)
+                prepared.append((item, hazy, clear))
+            if args.device.startswith("cuda"): torch.cuda.synchronize()
+            start = time.perf_counter()
+            outputs = infer_batch(models[dataset_name], [item[1] for item in prepared], args.device)
+            if args.device.startswith("cuda"): torch.cuda.synchronize()
+            runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared)
+            for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
+                row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear), "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear), "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear), "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear), "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
+                rows.append(row)
+                if args.save_images: cv2.imwrite(str(image_dir / f"{dataset}_{image_id}_mb_taylorformerv2.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+                print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
     inference_seconds = time.perf_counter() - inference_start
     if not rows:
         raise RuntimeError("No paired images found.")

@@ -20,15 +20,26 @@ from excel_report import export_excel_reports
 from evaluation_hardware import write_hardware_report
 
 
-def load_model(args):
+def load_model(args, checkpoint_path):
     module_name = "models.FSNet_UDPNet" if args.model == "FSNet" else "models.ConvIR_UDPNet"
     module = __import__(module_name, fromlist=["build_net"])
     model = module.build_net()
-    checkpoint = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location=args.device, weights_only=False)
     state = checkpoint.get("state_dict", checkpoint.get("params", checkpoint))
     state = {key.replace("model.", "", 1).removeprefix("module."): value for key, value in state.items()}
     model.load_state_dict(state, strict=False)
     return model.to(args.device).eval()
+
+
+def checkpoint_map(args):
+    base = args.checkpoint_dir
+    prefix = f"{args.model}_UDPNet_"
+    return {
+        "sots-indoor": base / f"{prefix}ITS.ckpt",
+        "sots-outdoor": base / f"{prefix}OTS.ckpt",
+        "o-hazy": base / f"{prefix}OTS.ckpt",
+        "i-haze": base / f"{prefix}ITS.ckpt",
+    }
 
 
 def load_depth_model(model_name, device):
@@ -110,7 +121,7 @@ def parse_args():
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "dataset")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--model", choices=("FSNet", "ConvIR"), default="FSNet")
-    parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "UDPNet_checkpoints" / "FSNet_UDPNet_OTS.ckpt")
+    parser.add_argument("--checkpoint-dir", type=Path, default=PROJECT_ROOT / "UDPNet_checkpoints")
     parser.add_argument("--depth-dir", type=Path, default=None, help="Optional directory containing depth maps named like hazy images.")
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -127,29 +138,36 @@ def main():
     depth_pipeline = None if args.depth_dir else (*load_depth_model(args.depth_model, args.device), args.device)
     if args.depth_dir is None:
         print(f"Using Depth Anything V2 depth model: {args.depth_model}")
-    model = load_model(args)
     pairs = []
     for dataset in DATASET_LOADERS:
         values = DATASET_LOADERS[dataset](args.data_root, args.split); pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
     inference_start = time.perf_counter()
     model_inference_seconds = 0.0
-    for offset in range(0, len(pairs), args.batch_size):
-        batch_pairs = pairs[offset:offset + args.batch_size]; prepared = []
-        for item in batch_pairs:
-            dataset, image_id, hazy_path, clear_path = item
-            hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
-            hazy, clear = resize_pair(hazy, clear, args.max_side); prepared.append((item, hazy, clear))
-        depth_paths = [args.depth_dir / item[0][2].name if args.depth_dir else None for item in prepared]
-        if args.device.startswith("cuda"): torch.cuda.synchronize()
-        start = time.perf_counter(); outputs = infer_batch(model, [item[1] for item in prepared], depth_paths, args.device, depth_pipeline)
-        if args.device.startswith("cuda"): torch.cuda.synchronize()
-        runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared); model_inference_seconds += (runtime_ms / 1000.0) * len(prepared)
-        for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
-            hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear); hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
-            row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
-            rows.append(row); print(dataset, image_id, f"PSNR={output_psnr:.4f}", f"SSIM={output_ssim:.4f}", f"ms={runtime_ms:.2f}")
-            if args.save_images: cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_udpnet.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+    models = {}
+    checkpoints = checkpoint_map(args)
+    for dataset_name in DATASET_LOADERS:
+        dataset_pairs = [item for item in pairs if item[0] == dataset_name]
+        for offset in range(0, len(dataset_pairs), args.batch_size):
+            batch_pairs = dataset_pairs[offset:offset + args.batch_size]; prepared = []
+            checkpoint_path = checkpoints[dataset_name]
+            if dataset_name not in models:
+                if not checkpoint_path.exists(): raise FileNotFoundError(f"Missing checkpoint for {dataset_name}: {checkpoint_path}")
+                models[dataset_name] = load_model(args, checkpoint_path)
+            for item in batch_pairs:
+                dataset, image_id, hazy_path, clear_path = item
+                hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
+                hazy, clear = resize_pair(hazy, clear, args.max_side); prepared.append((item, hazy, clear))
+            depth_paths = [args.depth_dir / item[0][2].name if args.depth_dir else None for item in prepared]
+            if args.device.startswith("cuda"): torch.cuda.synchronize()
+            start = time.perf_counter(); outputs = infer_batch(models[dataset_name], [item[1] for item in prepared], depth_paths, args.device, depth_pipeline)
+            if args.device.startswith("cuda"): torch.cuda.synchronize()
+            runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared); model_inference_seconds += (runtime_ms / 1000.0) * len(prepared)
+            for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
+                hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear); hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
+                row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
+                rows.append(row); print(dataset, image_id, f"PSNR={output_psnr:.4f}", f"SSIM={output_ssim:.4f}", f"ms={runtime_ms:.2f}")
+                if args.save_images: cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_udpnet.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
     if not rows: raise RuntimeError("No paired images found.")
     with (args.output_dir / "per_image.csv").open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
