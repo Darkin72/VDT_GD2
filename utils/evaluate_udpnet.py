@@ -84,7 +84,7 @@ def parse_args():
     parser.add_argument("--depth-dir", type=Path, default=None, help="Optional directory containing depth maps named like hazy images.")
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--max-side", type=int, default=0)
+    parser.add_argument("--max-side", type=int, default=512, help="Maximum image side for inference; lower this if GPU memory is limited.")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "udpnet")
     parser.add_argument("--save-images", action="store_true")
