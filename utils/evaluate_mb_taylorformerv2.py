@@ -53,7 +53,8 @@ def infer_one(model, image, device, tile_size, tile_overlap):
         for top, left, bottom, right in tiles:
             tile = source[:, top:bottom, left:right]
             pad_h, pad_w = (8 - tile.shape[1] % 8) % 8, (8 - tile.shape[2] % 8) % 8
-            result = model(F.pad(tile.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect"))[0, :, :tile.shape[1], :tile.shape[2]].cpu()
+            tile_input = F.pad(tile.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect").to(device)
+            result = model(tile_input)[0, :, :tile.shape[1], :tile.shape[2]].cpu()
             output[:, top:bottom, left:right] += result
             weights[:, top:bottom, left:right] += 1
     return (output.div_(weights).permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8)
