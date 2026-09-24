@@ -1,89 +1,67 @@
 # Báo cáo kết quả dehazing
 
-## 1. Phạm vi và cấu hình
+## Phạm vi
 
-Các mô hình được chạy trên cùng tập test gồm SOTS-Indoor, SOTS-Outdoor, O-HAZE và I-HAZE. Kết quả được tính bằng PSNR, SSIM và thời gian trung bình trên mỗi ảnh. UDPNet sử dụng pipeline Depth Anything V2 + UDPNet; MB-TaylorFormerV2 sử dụng checkpoint OTS-B.
+Các mô hình được đánh giá trên SOTS-Indoor, SOTS-Outdoor, O-HAZE và I-HAZE. UDPNet và MB-TaylorFormerV2 dùng checkpoint theo miền: `ITS` cho SOTS-Indoor/I-HAZE và `OTS` cho SOTS-Outdoor/O-HAZE. Ảnh được giới hạn `max-side=512` để phù hợp VRAM Colab; kết quả phản ánh cấu hình triển khai hiện tại.
 
-Trong lần chạy này, để giới hạn bộ nhớ GPU, ảnh được giới hạn ở `max-side=512` và chạy batch nhỏ. Vì vậy đây là kết quả đánh giá thực tế trên cấu hình Colab hiện tại, không phải phép tái lập nguyên bản toàn bộ điều kiện huấn luyện/đánh giá của paper.
+## 1. Sheet Dataset
 
-## 2. Kết quả theo dataset
-
-| Mô hình | SOTS-Indoor PSNR / SSIM | SOTS-Outdoor PSNR / SSIM | O-HAZE PSNR / SSIM | I-HAZE PSNR / SSIM |
+| Mô hình | SOTS-Indoor PSNR / SSIM / ms | SOTS-Outdoor PSNR / SSIM / ms | O-HAZE PSNR / SSIM / ms | I-HAZE PSNR / SSIM / ms |
 |---|---:|---:|---:|---:|
-| UDPNet | 21.39 / 0.9157 | **35.52 / 0.9879** | **18.27 / 0.7540** | 16.66 / 0.7626 |
-| MB-TaylorFormerV2 | 21.17 / 0.9063 | 35.45 / **0.9883** | 18.23 / 0.7552 | **15.97 / 0.7650** |
-| GridDehazeNet | **33.21 / 0.9860** | 31.47 / 0.9839 | 17.32 / 0.6625 | 14.40 / 0.7232 |
-| CAP | 22.76 / 0.8833 | 21.44 / 0.9211 | 16.78 / 0.6511 | 15.12 / 0.7348 |
-| DCP | 21.70 / 0.8915 | 17.10 / 0.8623 | 14.30 / 0.5722 | 11.54 / 0.5886 |
+| UDPNet | **37.54 / 0.9919 / 119.77** | 35.26 / 0.9877 / 169.14 | **18.27 / 0.7540 / 159.99** | **11.94 / 0.5247 / 222.04** |
+| MB-TaylorFormerV2 | 35.61 / 0.9873 / 151.13 | **35.39 / 0.9879 / 195.56** | 18.23 / 0.7552 / 262.02 | 11.09 / 0.4775 / 323.99 |
+| GridDehazeNet | 33.21 / 0.9860 / **42.17** | 31.47 / 0.9839 / **47.52** | 17.32 / 0.6625 / 1126.20 | 14.40 / **0.7232** / 1358.43 |
+| CAP | 22.76 / 0.8833 / **19.59** | 21.44 / 0.9211 / **18.75** | 16.78 / 0.6511 / 1264.76 | **15.12 / 0.7348** / 1589.52 |
+| DCP | 21.70 / 0.8915 / 47.87 | 17.10 / 0.8623 / 44.19 | 14.30 / 0.5722 / 2335.65 | 11.54 / 0.5886 / 2845.65 |
 
-UDPNet đạt kết quả tốt nhất giữa hai mô hình mới trên SOTS-Indoor, SOTS-Outdoor và O-HAZE. MB-TaylorFormerV2 có SSIM nhỉnh hơn UDPNet trên SOTS-Outdoor và I-HAZE, nhưng PSNR thấp hơn trên các tập này.
+UDPNet dẫn đầu SOTS-Indoor với `37.54 dB`, cao hơn MB-TaylorFormerV2 `1.93 dB` và GridDehazeNet `4.33 dB`. Việc dùng checkpoint `ITS` đúng miền đã cải thiện rất mạnh so với lần chạy trước.
 
-Khoảng cách lớn trên SOTS-Indoor cần được đọc trong bối cảnh checkpoint không đồng nhất. UDPNet chỉ dùng `FSNet_UDPNet_OTS.ckpt` và MB-TaylorFormerV2 chỉ dùng `OTS-B.pth`; cả hai đều là checkpoint thuộc miền OTS/outdoor nhưng được dùng chung cho cả SOTS-Indoor và SOTS-Outdoor. Ngược lại, GridDehazeNet dùng checkpoint indoor cho SOTS-Indoor và checkpoint outdoor cho SOTS-Outdoor. Vì vậy GridDehazeNet được đánh giá đúng miền trên cả hai tập, còn UDPNet và MB-TaylorFormerV2 bị đánh giá chéo miền ở SOTS-Indoor.
+Trên SOTS-Outdoor, MB-TaylorFormerV2 cao hơn UDPNet `0.13 dB` và `0.0002` SSIM, nhưng chậm hơn khoảng `26.42 ms/ảnh`. Trên O-HAZE, hai mô hình mới gần như tương đương: UDPNet hơn `0.04 dB`, còn MB-TaylorFormerV2 hơn `0.0012` SSIM.
 
-Do đó, mức chênh lệch `33.21 dB` so với khoảng `21 dB` trên SOTS-Indoor chủ yếu phản ánh lợi thế checkpoint đúng miền và domain mismatch, không phải bằng chứng trực tiếp rằng kiến trúc GridDehazeNet vượt UDPNet/MB-TaylorFormerV2 hơn 11 dB. Trên SOTS-Outdoor, nơi checkpoint OTS của hai mô hình phù hợp với domain, UDPNet và MB-TaylorFormerV2 đạt khoảng `35.5 dB`, cao hơn GridDehazeNet khoảng 4 dB. Hai kết quả trái chiều này cho thấy việc lựa chọn checkpoint ảnh hưởng rất mạnh đến kết luận so sánh.
+Trên I-HAZE, UDPNet hơn MB-TaylorFormerV2 `0.85 dB` PSNR và `0.0472` SSIM, nhưng vẫn thấp hơn GridDehazeNet `2.46 dB` PSNR và `0.1985` SSIM. Checkpoint ITS giúp cải thiện SOTS-Indoor nhưng không bảo đảm tối ưu cho I-HAZE, vì I-HAZE là ảnh real có phân phối khác đáng kể.
 
-## 3. Kết quả theo miền dữ liệu và tốc độ
+## 2. Sheet Real / Synthetic
 
-| Mô hình | Real PSNR / SSIM | Synthetic PSNR / SSIM | RAM peak (GB) | FPS toàn pipeline | FPS suy luận | VRAM peak (GB / 80 GB) |
-|---|---:|---:|---:|---:|---:|---:|
-| UDPNet | 17.60 / 0.7576 | **28.46 / 0.9518** | 1.846 | **4.3373** | **7.2815** | 23.323 |
-| MB-TaylorFormerV2 | **17.29 / 0.7593** | 28.31 / 0.9473 | 1.736 | 3.3097 | 3.3097 | 30.816 |
-| GridDehazeNet | 16.10 / 0.6878 | **32.34 / 0.9850** | 1.790 | 2.3004 | 7.6970 | 19.290 |
-| CAP | 16.08 / 0.6860 | 22.10 / 0.9022 | 1.190 | 1.8623 | 4.1056 | - |
-| DCP | 13.15 / 0.5790 | 19.40 / 0.8769 | 1.290 | 2.3988 | 7.8008 | - |
+| Mô hình | Real PSNR / SSIM / ms | Synthetic PSNR / SSIM / ms |
+|---|---:|---:|
+| UDPNet | **15.64 / 0.6585 / 185.85** | **36.40 / 0.9898 / 144.45** |
+| MB-TaylorFormerV2 | 15.26 / 0.6395 / 287.84 | 35.50 / 0.9876 / 173.35 |
+| GridDehazeNet | **16.10 / 0.6878 / 1222.96** | 32.34 / 0.9850 / **44.84** |
+| CAP | 16.08 / **0.6860 / 1400.07** | 22.10 / 0.9022 / **19.17** |
+| DCP | 13.15 / 0.5790 / 2548.15 | 19.40 / 0.8769 / 46.03 |
 
-UDPNet có tốc độ tổng thể cao hơn MB-TaylorFormerV2 trong cấu hình đã chạy. FPS suy luận của UDPNet không bao gồm toàn bộ chi phí chuẩn bị dữ liệu như đọc ảnh và một số bước pipeline; FPS toàn pipeline phù hợp hơn khi ước lượng tốc độ sử dụng thực tế.
+UDPNet dẫn đầu synthetic với `36.40 dB`, cao hơn MB-TaylorFormerV2 `0.90 dB` và GridDehazeNet `4.06 dB`. Trên real, GridDehazeNet vẫn có điểm cao nhất nhưng chậm `1222.96 ms/ảnh`; UDPNet thấp hơn `0.46 dB` nhưng nhanh hơn khoảng `6.6 lần`. Khoảng cách synthetic-real của UDPNet là `20.76 dB`, cho thấy domain gap rất lớn dù đã dùng checkpoint theo miền tổng hợp.
 
-## 4. Diễn giải giới hạn kết quả
+## 3. Sheet Fog level
 
-Không nên so sánh trực tiếp các con số trên với số cao nhất trong paper như một phép tái lập tuyệt đối, vì:
+| Mô hình | Light fog PSNR / SSIM / ms | Medium fog PSNR / SSIM / ms | Heavy fog PSNR / SSIM / ms |
+|---|---:|---:|---:|
+| UDPNet | **37.66 / 0.9917 / 144.91** | **36.51 / 0.9897 / 136.13** | **34.01 / 0.9866 / 152.65** |
+| MB-TaylorFormerV2 | 37.13 / 0.9912 / 175.26 | 34.97 / 0.9854 / 166.18 | 33.14 / 0.9837 / 177.67 |
+| GridDehazeNet | 33.79 / 0.9882 / **44.81** | 32.59 / 0.9847 / **33.49** | 29.46 / 0.9794 / **57.21** |
+| CAP | 22.85 / 0.9097 / **18.59** | 21.74 / 0.8897 / **19.55** | 21.14 / 0.9021 / **19.82** |
+| DCP | 19.56 / 0.8897 / 44.29 | 19.75 / 0.8678 / 47.32 | 18.74 / 0.8637 / 47.77 |
 
-- ảnh đã được thu nhỏ về `max-side=512` để tránh OOM; việc này làm mất chi tiết và thường làm giảm PSNR/SSIM;
-- batch size và cách padding khác với pipeline gốc của từng repo;
-- UDPNet có thêm Depth Anything V2, nhưng phiên bản backbone, preprocessing và depth prior có thể khác cấu hình tác giả dùng để báo cáo;
-- checkpoint được chạy là checkpoint tải được, còn paper có thể dùng checkpoint/phiên bản code, dataset split và hậu xử lý khác;
-- GridDehazeNet sử dụng hai checkpoint chuyên biệt indoor/outdoor, trong khi UDPNet và MB-TaylorFormerV2 chỉ sử dụng một checkpoint outdoor cho tất cả dataset; vì vậy trung bình synthetic hiện tại chưa phải so sánh checkpoint-công-bằng;
-- paper thường báo cáo với quy trình benchmark cố định, trong khi kết quả này dùng một evaluator chung cho nhiều phương pháp;
-- giới hạn VRAM khiến không thể chạy nguyên ảnh độ phân giải cao theo đúng protocol mà không chia tile. Tiled inference giữ chi tiết tốt hơn nhưng chậm hơn nhiều, nên lần chạy cuối ưu tiên tốc độ bằng resize.
+UDPNet dẫn đầu cả ba mức haze. So với MB-TaylorFormerV2, UDPNet hơn `0.53 dB` ở haze nhẹ, `1.54 dB` ở haze trung bình và `0.87 dB` ở haze nặng. GridDehazeNet nhanh hơn nhưng thấp hơn UDPNet lần lượt `3.87`, `3.92` và `4.55 dB`. Fog level chỉ áp dụng cho synthetic và được suy ra từ metadata/tên ảnh.
 
-Do đó, các kết quả hiện tại nên được hiểu là benchmark trong cùng môi trường chạy nhưng chưa đồng nhất về miền huấn luyện của checkpoint. Muốn so sánh công bằng hơn cần có checkpoint indoor tương ứng cho UDPNet và MB-TaylorFormerV2, hoặc buộc tất cả mô hình dùng checkpoint của cùng một miền.
+## 4. Sheet Hardware
 
-## 5. Giải thích miền tần số trong paper HazeWaveNet
+| Mô hình | RAM peak (GB) | FPS toàn pipeline | FPS suy luận | VRAM peak (GB / 80 GB) |
+|---|---:|---:|---:|---:|
+| UDPNet | 1.941 | **3.6700** | **6.7695** | 46.373 |
+| MB-TaylorFormerV2 | 1.751 | 3.0658 | 3.0658 | 30.846 |
+| GridDehazeNet | 1.790 | 2.3004 | 7.6970 | 19.290 |
+| CAP | 1.190 | 1.8623 | 4.1056 | 0 |
+| DCP | 1.290 | 2.3988 | 7.8008 | 0 |
 
-`paper/Dehaze wavelet.pdf` mô tả **HazeWaveNet**, không phải UDPNet hay MB-TaylorFormerV2. Paper dùng biến đổi wavelet rời rạc (DWT), cụ thể là wavelet Haar, để tách đặc trưng theo tần số và độ phân giải.
+UDPNet nhanh hơn MB-TaylorFormerV2 khoảng `20%` theo FPS toàn pipeline. UDPNet dùng `46.373 GB` VRAM do chạy đồng thời Depth Anything V2 và UDPNet; MB-TaylorFormerV2 dùng `30.846 GB` nhưng chậm hơn. GridDehazeNet có FPS model cao nhất nhưng pipeline tổng thể chậm do xử lý ảnh thực tế và post-processing. VRAM bằng `0` của CAP/DCP chỉ có nghĩa evaluator không ghi nhận CUDA memory vì hai phương pháp chạy CPU.
 
-### 5.1. DWT tách ảnh như thế nào?
+## 5. Kết luận
 
-Ở mỗi mức phân rã, DWT áp dụng bộ lọc thông thấp và thông cao theo hai chiều rồi giảm một nửa kích thước không gian. Kết quả gồm bốn dải:
+Sau khi dùng checkpoint theo miền, UDPNet cải thiện mạnh trên SOTS-Indoor và dẫn đầu cả ba mức fog synthetic. UDPNet là lựa chọn cân bằng tốt nhất giữa chất lượng và tốc độ trong hai mô hình mới. MB-TaylorFormerV2 gần UDPNet trên SOTS-Outdoor và O-HAZE, nhưng chậm hơn và thường có PSNR thấp hơn.
 
-- `LL`: thành phần xấp xỉ/thấp tần, chứa vùng trơn, cấu trúc lớn, độ sáng và tương phản tổng thể;
-- `LH`: chi tiết theo một hướng;
-- `HL`: chi tiết theo hướng còn lại;
-- `HH`: chi tiết biên/texture mạnh, thường được gọi chung là các dải cao tần.
+GridDehazeNet vẫn mạnh nhất trên I-HAZE và có tốc độ infer model cao, nhưng pipeline thực tế rất chậm trên ảnh độ phân giải lớn. Kết quả I-HAZE thấp của UDPNet/MB-TaylorFormerV2 dù dùng checkpoint ITS cho thấy đúng checkpoint theo tên dataset chưa đủ; preprocessing, domain real và việc resize `max-side=512` vẫn ảnh hưởng lớn. Muốn tái lập sát paper cần dùng đúng preprocessing/checkpoint validation và inference full-resolution hoặc tiled.
 
-Với Haar, phép tính gần như lấy trung bình và sai phân của các pixel lân cận. `LL` giữ thông tin mượt và giảm kích thước; `LH/HL/HH` giữ biến thiên nhanh như cạnh, texture và biên vật thể. Paper dùng DWT nhiều mức, thường là bốn mức, nên `LL` tiếp tục được phân rã để tạo biểu diễn đa tỉ lệ.
+## 6. Miền tần số trong HazeWaveNet
 
-### 5.2. Mạng làm gì với các dải tần?
-
-1. **Nhánh thấp tần:** xử lý `LL` bằng các nhóm FEGB. Đây là nhánh chính để sửa veil haze, tương phản toàn cục và vùng mờ. Guidance từ Dark Channel Prior được chuyển thành bản đồ truyền qua/trend map rồi dùng để điều chế attention và convolution theo vùng có haze mạnh.
-2. **Nhánh cao tần:** xử lý `LH/HL/HH` bằng các module nhẹ VP/VR. Mục tiêu không phải khử haze mạnh mà bù suy giảm tương phản cạnh, giữ biên và texture, tránh ảnh bị nhòe.
-3. **Wavelet Integration Module (WIM):** hợp nhất các nhánh thấp/cao tần ở nhiều mức bằng convolution, nối đặc trưng, residual connection và upsampling học được. Paper không dùng IDWT trực tiếp ở bước cuối; WIM học cách tái tạo để giảm ringing/checkerboard artifact.
-4. **Refinement:** convolution cuối và Tanh tạo ảnh dehazed.
-
-### 5.3. Hàm mất mát miền tần số
-
-Paper dùng tổng hợp hai thành phần:
-
-```text
-L = theta * La + (1 - theta) * Ld
-```
-
-Trong đó `La` so sánh biên độ biến đổi của ảnh dự đoán và ảnh sạch; `Ld` là sai số trên từng dải `LL/LH/HL/HH`. Vì vậy mạng không chỉ tối ưu ảnh ở miền pixel mà còn bị ràng buộc phải khôi phục đúng cấu trúc đa tần số.
-
-### 5.4. Ý nghĩa trực giác
-
-Haze chủ yếu làm giảm tương phản và che phủ cấu trúc lớn nên ảnh hưởng mạnh đến `LL`, nhưng không phải hoàn toàn không ảnh hưởng cao tần: biên và tương phản cục bộ cũng bị suy giảm. Vì vậy HazeWaveNet sửa mạnh nhánh thấp tần, đồng thời bảo toàn và tinh chỉnh nhẹ các dải cao tần thay vì bỏ qua chúng.
-
-## 6. Kết luận
-
-Trong cấu hình thực nghiệm hiện tại, UDPNet là lựa chọn cân bằng tốt hơn giữa chất lượng và tốc độ; MB-TaylorFormerV2 cho SSIM tốt ở một số tập nhưng chậm hơn và nhạy với giới hạn batch/VRAM. Kết quả thấp hơn paper là có thể giải thích được bởi resize `512`, preprocessing và điều kiện chạy khác. Nếu cần tái lập sát paper, bước tiếp theo là chạy full-resolution hoặc tiled inference, dùng đúng split/preprocessing/checkpoint của từng công trình và chấp nhận thời gian infer cao hơn.
+`paper/Dehaze wavelet.pdf` mô tả HazeWaveNet, không phải UDPNet/MB-TaylorFormerV2. Mạng dùng DWT Haar nhiều mức để tách đặc trưng thành `LL` (thấp tần) và `LH/HL/HH` (cao tần). Nhánh `LL` được xử lý mạnh bằng haze-trend guidance từ Dark Channel Prior để sửa veil haze, tương phản và vùng trơn. Các dải cao tần được xử lý nhẹ để giữ biên và texture. Wavelet Integration Module học cách hợp nhất các dải bằng convolution, residual và upsampling thay vì dùng trực tiếp IDWT. Loss gồm amplitude loss và decomposition loss trên các dải DWT, buộc ảnh đầu ra nhất quán cả ở miền pixel và miền tần số.
