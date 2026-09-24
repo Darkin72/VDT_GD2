@@ -64,15 +64,33 @@ def depth_channel(image, depth_path, depth_pipeline):
     return depth / maximum if maximum > 1e-8 else np.zeros_like(depth)
 
 
-def infer_one(model, image, depth_path, device, depth_pipeline):
+def infer_tile(model, tensor, device):
+    with torch.inference_mode():
+        return model(tensor.to(device))[-1].cpu()
+
+
+def infer_one(model, image, depth_path, device, depth_pipeline, tile_size, tile_overlap):
     height, width = image.shape[:2]
     depth = depth_channel(image, depth_path, depth_pipeline)
-    tensor = torch.from_numpy(np.concatenate([image.astype(np.float32) / 255.0, depth[..., None]], axis=2)).permute(2, 0, 1).unsqueeze(0)
-    pad_h, pad_w = (8 - height % 8) % 8, (8 - width % 8) % 8
-    tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect").to(device)
-    with torch.inference_mode():
-        output = model(tensor)[-1][:, :, :height, :width]
-    return (output.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1) * 255).round().astype(np.uint8)
+    source = torch.from_numpy(np.concatenate([image.astype(np.float32) / 255.0, depth[..., None]], axis=2)).permute(2, 0, 1)
+    if tile_size <= 0 or (height <= tile_size and width <= tile_size):
+        pad_h, pad_w = (8 - height % 8) % 8, (8 - width % 8) % 8
+        output = infer_tile(model, F.pad(source.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect"), device)[:, :, :height, :width]
+    else:
+        stride = max(8, tile_size - tile_overlap)
+        output = torch.zeros((3, height, width), dtype=torch.float32)
+        weights = torch.zeros((1, height, width), dtype=torch.float32)
+        for top in range(0, height, stride):
+            for left in range(0, width, stride):
+                bottom, right = min(top + tile_size, height), min(left + tile_size, width)
+                top, left = max(0, bottom - tile_size), max(0, right - tile_size)
+                tile = source[:, top:bottom, left:right]
+                pad_h, pad_w = (8 - tile.shape[1] % 8) % 8, (8 - tile.shape[2] % 8) % 8
+                result = infer_tile(model, F.pad(tile.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect"), device)[0, :, :tile.shape[1], :tile.shape[2]]
+                output[:, top:bottom, left:right] += result
+                weights[:, top:bottom, left:right] += 1
+        output /= weights
+    return (output.permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8)
 
 
 def parse_args():
@@ -84,7 +102,9 @@ def parse_args():
     parser.add_argument("--depth-dir", type=Path, default=None, help="Optional directory containing depth maps named like hazy images.")
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--max-side", type=int, default=512, help="Maximum image side for inference; lower this if GPU memory is limited.")
+    parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize. 0 preserves the original resolution.")
+    parser.add_argument("--tile-size", type=int, default=512, help="Inference tile size used when preserving full resolution.")
+    parser.add_argument("--tile-overlap", type=int, default=32)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "udpnet")
     parser.add_argument("--save-images", action="store_true")
@@ -105,7 +125,7 @@ def main():
         hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
         hazy, clear = resize_pair(hazy, clear, args.max_side)
         depth_path = args.depth_dir / hazy_path.name if args.depth_dir else None
-        start = time.perf_counter(); output = infer_one(model, hazy, depth_path, args.device, depth_pipeline); runtime_ms = (time.perf_counter() - start) * 1000
+        start = time.perf_counter(); output = infer_one(model, hazy, depth_path, args.device, depth_pipeline, args.tile_size, args.tile_overlap); runtime_ms = (time.perf_counter() - start) * 1000
         hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear)
         hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
         row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
