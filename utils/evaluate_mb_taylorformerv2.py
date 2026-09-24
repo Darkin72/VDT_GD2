@@ -18,6 +18,7 @@ sys.path.insert(0, str(MB_ROOT))
 
 from evaluate import DATASET_LOADERS, calculate_psnr, calculate_ssim, infer_data_origin, infer_fog_level, resize_pair
 from excel_report import export_excel_reports
+from evaluation_hardware import write_hardware_report
 from basicsr.models.archs.MB_TaylorFormerV2 import MB_TaylorFormer
 
 
@@ -87,6 +88,7 @@ def main():
         values = DATASET_LOADERS[dataset](args.data_root, args.split)
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
+    inference_start = time.perf_counter()
     for dataset, image_id, hazy_path, clear_path in pairs:
         hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
         clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
@@ -99,11 +101,13 @@ def main():
         if args.save_images:
             cv2.imwrite(str(image_dir / f"{dataset}_{image_id}_mb_taylorformerv2.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
         print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
+    inference_seconds = time.perf_counter() - inference_start
     if not rows:
         raise RuntimeError("No paired images found.")
     with (args.output_dir / "per_image.csv").open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
     export_excel_reports("MB-TaylorFormerV2", rows, args.output_dir)
+    write_hardware_report(args.output_dir, "MB-TaylorFormerV2", len(rows), inference_seconds, inference_seconds)
 
 
 if __name__ == "__main__":

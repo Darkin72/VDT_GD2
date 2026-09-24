@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "utils"))
 sys.path.insert(0, str(UDP_ROOT))
 from evaluate import DATASET_LOADERS, calculate_psnr, calculate_ssim, infer_data_origin, infer_fog_level, resize_pair
 from excel_report import export_excel_reports
+from evaluation_hardware import write_hardware_report
 
 
 def load_model(args):
@@ -121,11 +122,14 @@ def main():
     for dataset in DATASET_LOADERS:
         values = DATASET_LOADERS[dataset](args.data_root, args.split); pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
+    inference_start = time.perf_counter()
+    model_inference_seconds = 0.0
     for dataset, image_id, hazy_path, clear_path in pairs:
         hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
         hazy, clear = resize_pair(hazy, clear, args.max_side)
         depth_path = args.depth_dir / hazy_path.name if args.depth_dir else None
         start = time.perf_counter(); output = infer_one(model, hazy, depth_path, args.device, depth_pipeline, args.tile_size, args.tile_overlap); runtime_ms = (time.perf_counter() - start) * 1000
+        model_inference_seconds += runtime_ms / 1000.0
         hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear)
         hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
         row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
@@ -135,6 +139,7 @@ def main():
     with (args.output_dir / "per_image.csv").open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
     export_excel_reports("UDPNet", rows, args.output_dir)
+    write_hardware_report(args.output_dir, "UDPNet", len(rows), time.perf_counter() - inference_start, model_inference_seconds)
 
 
 if __name__ == "__main__": main()
