@@ -48,7 +48,7 @@ def load_depth_model(model_name, device):
 def depth_channels(images, depth_paths, depth_pipeline):
     if depth_pipeline is not None:
         processor, model, device = depth_pipeline
-        inputs = processor(images=images, return_tensors="pt")
+        inputs = processor(images=images, padding=True, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
         with torch.inference_mode():
             predictions = model(**inputs).predicted_depth
