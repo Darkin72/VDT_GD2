@@ -35,6 +35,10 @@ def load_depth_model(model_name, device):
         from transformers import AutoImageProcessor, AutoModelForDepthEstimation
     except ImportError as exc:
         raise RuntimeError("Depth Anything V2 requires transformers. Run: pip install -U transformers") from exc
+    # The original HF repo only contains a raw .pth checkpoint. Use its
+    # Transformers-converted counterpart when the original ID is supplied.
+    if model_name == "depth-anything/Depth-Anything-V2-Base":
+        model_name = "depth-anything/Depth-Anything-V2-Base-hf"
     processor = AutoImageProcessor.from_pretrained(model_name)
     model = AutoModelForDepthEstimation.from_pretrained(model_name).to(device).eval()
     return processor, model
@@ -78,7 +82,7 @@ def parse_args():
     parser.add_argument("--model", choices=("FSNet", "ConvIR"), default="FSNet")
     parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "UDPNet_checkpoints" / "FSNet_UDPNet_OTS.ckpt")
     parser.add_argument("--depth-dir", type=Path, default=None, help="Optional directory containing depth maps named like hazy images.")
-    parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base", help="Hugging Face Depth Anything V2 model ID.")
+    parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0)
     parser.add_argument("--limit", type=int, default=0)
