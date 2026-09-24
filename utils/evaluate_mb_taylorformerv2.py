@@ -35,15 +35,28 @@ def load_model(args):
     return model.to(args.device).eval()
 
 
-def infer_one(model, image, device):
+def infer_one(model, image, device, tile_size, tile_overlap):
     height, width = image.shape[:2]
-    tensor = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-    pad_h = (8 - height % 8) % 8
-    pad_w = (8 - width % 8) % 8
-    tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
+    source = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1)
+    if tile_size <= 0 or (height <= tile_size and width <= tile_size):
+        tiles = [(0, 0, height, width)]
+    else:
+        stride = max(8, tile_size - tile_overlap)
+        tiles = []
+        for top in range(0, height, stride):
+            for left in range(0, width, stride):
+                bottom, right = min(top + tile_size, height), min(left + tile_size, width)
+                tiles.append((max(0, bottom - tile_size), max(0, right - tile_size), bottom, right))
+    output = torch.zeros((3, height, width), dtype=torch.float32)
+    weights = torch.zeros((1, height, width), dtype=torch.float32)
     with torch.inference_mode():
-        output = model(tensor)[:, :, :height, :width]
-    return (output.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        for top, left, bottom, right in tiles:
+            tile = source[:, top:bottom, left:right]
+            pad_h, pad_w = (8 - tile.shape[1] % 8) % 8, (8 - tile.shape[2] % 8) % 8
+            result = model(F.pad(tile.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect"))[0, :, :tile.shape[1], :tile.shape[2]].cpu()
+            output[:, top:bottom, left:right] += result
+            weights[:, top:bottom, left:right] += 1
+    return (output.div_(weights).permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8)
 
 
 def parse_args():
@@ -53,7 +66,9 @@ def parse_args():
     parser.add_argument("--size", choices=("B", "L"), default="B")
     parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2" / "OTS-B.pth")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--max-side", type=int, default=0, help="Resize pairs; 0 keeps original resolution.")
+    parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize; 0 keeps original resolution.")
+    parser.add_argument("--tile-size", type=int, default=1024)
+    parser.add_argument("--tile-overlap", type=int, default=64)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "mb_taylorformerv2")
     parser.add_argument("--save-images", action="store_true")
@@ -76,7 +91,7 @@ def main():
         clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
         hazy, clear = resize_pair(hazy, clear, args.max_side)
         start = time.perf_counter()
-        output = infer_one(model, hazy, args.device)
+        output = infer_one(model, hazy, args.device, args.tile_size, args.tile_overlap)
         runtime_ms = (time.perf_counter() - start) * 1000
         row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear), "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear), "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear), "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear), "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
         rows.append(row)
