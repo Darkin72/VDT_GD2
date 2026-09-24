@@ -33,6 +33,8 @@ def load_model(args, checkpoint_path):
 
 def checkpoint_map(args):
     base = args.checkpoint_dir
+    if base.suffix.lower() in {".pth", ".ckpt"}:
+        base = base.parent
     prefix = f"{args.model}_UDPNet_"
     return {
         "sots-indoor": base / f"{prefix}ITS.ckpt",

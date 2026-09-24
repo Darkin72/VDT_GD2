@@ -38,6 +38,8 @@ def load_model(args, checkpoint_path):
 
 def checkpoint_map(args):
     base = args.checkpoint_dir
+    if base.suffix.lower() in {".pth", ".ckpt"}:
+        base = base.parent
     suffix = args.size
     return {
         "sots-indoor": base / f"ITS-{suffix}.pth",
