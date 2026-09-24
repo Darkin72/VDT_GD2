@@ -18,6 +18,10 @@ Trong lần chạy này, để giới hạn bộ nhớ GPU, ảnh được giớ
 
 UDPNet đạt kết quả tốt nhất giữa hai mô hình mới trên SOTS-Indoor, SOTS-Outdoor và O-HAZE. MB-TaylorFormerV2 có SSIM nhỉnh hơn UDPNet trên SOTS-Outdoor và I-HAZE, nhưng PSNR thấp hơn trên các tập này.
 
+Khoảng cách lớn trên SOTS-Indoor cần được đọc trong bối cảnh checkpoint không đồng nhất. UDPNet chỉ dùng `FSNet_UDPNet_OTS.ckpt` và MB-TaylorFormerV2 chỉ dùng `OTS-B.pth`; cả hai đều là checkpoint thuộc miền OTS/outdoor nhưng được dùng chung cho cả SOTS-Indoor và SOTS-Outdoor. Ngược lại, GridDehazeNet dùng checkpoint indoor cho SOTS-Indoor và checkpoint outdoor cho SOTS-Outdoor. Vì vậy GridDehazeNet được đánh giá đúng miền trên cả hai tập, còn UDPNet và MB-TaylorFormerV2 bị đánh giá chéo miền ở SOTS-Indoor.
+
+Do đó, mức chênh lệch `33.21 dB` so với khoảng `21 dB` trên SOTS-Indoor chủ yếu phản ánh lợi thế checkpoint đúng miền và domain mismatch, không phải bằng chứng trực tiếp rằng kiến trúc GridDehazeNet vượt UDPNet/MB-TaylorFormerV2 hơn 11 dB. Trên SOTS-Outdoor, nơi checkpoint OTS của hai mô hình phù hợp với domain, UDPNet và MB-TaylorFormerV2 đạt khoảng `35.5 dB`, cao hơn GridDehazeNet khoảng 4 dB. Hai kết quả trái chiều này cho thấy việc lựa chọn checkpoint ảnh hưởng rất mạnh đến kết luận so sánh.
+
 ## 3. Kết quả theo miền dữ liệu và tốc độ
 
 | Mô hình | Real PSNR / SSIM | Synthetic PSNR / SSIM | RAM peak (GB) | FPS toàn pipeline | FPS suy luận | VRAM peak (GB / 80 GB) |
@@ -38,10 +42,11 @@ Không nên so sánh trực tiếp các con số trên với số cao nhất tro
 - batch size và cách padding khác với pipeline gốc của từng repo;
 - UDPNet có thêm Depth Anything V2, nhưng phiên bản backbone, preprocessing và depth prior có thể khác cấu hình tác giả dùng để báo cáo;
 - checkpoint được chạy là checkpoint tải được, còn paper có thể dùng checkpoint/phiên bản code, dataset split và hậu xử lý khác;
+- GridDehazeNet sử dụng hai checkpoint chuyên biệt indoor/outdoor, trong khi UDPNet và MB-TaylorFormerV2 chỉ sử dụng một checkpoint outdoor cho tất cả dataset; vì vậy trung bình synthetic hiện tại chưa phải so sánh checkpoint-công-bằng;
 - paper thường báo cáo với quy trình benchmark cố định, trong khi kết quả này dùng một evaluator chung cho nhiều phương pháp;
 - giới hạn VRAM khiến không thể chạy nguyên ảnh độ phân giải cao theo đúng protocol mà không chia tile. Tiled inference giữ chi tiết tốt hơn nhưng chậm hơn nhiều, nên lần chạy cuối ưu tiên tốc độ bằng resize.
 
-Do đó, các kết quả hiện tại nên được hiểu là benchmark so sánh trong cùng môi trường, không phải khẳng định mô hình kém hơn paper.
+Do đó, các kết quả hiện tại nên được hiểu là benchmark trong cùng môi trường chạy nhưng chưa đồng nhất về miền huấn luyện của checkpoint. Muốn so sánh công bằng hơn cần có checkpoint indoor tương ứng cho UDPNet và MB-TaylorFormerV2, hoặc buộc tất cả mô hình dùng checkpoint của cùng một miền.
 
 ## 5. Giải thích miền tần số trong paper HazeWaveNet
 
