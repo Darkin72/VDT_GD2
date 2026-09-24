@@ -45,6 +45,28 @@ def load_depth_model(model_name, device):
     return processor, model
 
 
+def depth_channels(images, depth_paths, depth_pipeline):
+    if depth_pipeline is not None:
+        processor, model, device = depth_pipeline
+        inputs = processor(images=images, return_tensors="pt")
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+        with torch.inference_mode():
+            predictions = model(**inputs).predicted_depth
+        depths = []
+        for prediction, image in zip(predictions, images):
+            depth = F.interpolate(prediction[None, None], size=image.shape[:2], mode="bilinear", align_corners=False).squeeze().cpu().numpy().astype(np.float32)
+            depth -= depth.min(); maximum = depth.max()
+            depths.append(depth / maximum if maximum > 1e-8 else np.zeros_like(depth))
+        return depths
+    depths = []
+    for image, depth_path in zip(images, depth_paths):
+        depth = cv2.imread(str(depth_path), cv2.IMREAD_GRAYSCALE) if depth_path and depth_path.exists() else None
+        if depth is None:
+            raise FileNotFoundError(f"Depth map not found: {depth_path}")
+        depths.append(cv2.resize(depth, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255.0)
+    return depths
+
+
 def depth_channel(image, depth_path, depth_pipeline):
     if depth_path is not None and depth_path.exists():
         depth = cv2.imread(str(depth_path), cv2.IMREAD_GRAYSCALE)
@@ -65,14 +87,19 @@ def depth_channel(image, depth_path, depth_pipeline):
     return depth / maximum if maximum > 1e-8 else np.zeros_like(depth)
 
 
-def infer_one(model, image, depth_path, device, depth_pipeline):
-    height, width = image.shape[:2]
-    depth = depth_channel(image, depth_path, depth_pipeline)
-    source = torch.from_numpy(np.concatenate([image.astype(np.float32) / 255.0, depth[..., None]], axis=2)).permute(2, 0, 1)
-    pad_h, pad_w = (8 - height % 8) % 8, (8 - width % 8) % 8
+def infer_batch(model, images, depth_paths, device, depth_pipeline):
+    shapes = [image.shape[:2] for image in images]
+    depths = depth_channels(images, depth_paths, depth_pipeline)
+    target_h = (max(height for height, _ in shapes) + 7) // 8 * 8
+    target_w = (max(width for _, width in shapes) + 7) // 8 * 8
+    tensors = []
+    for image, depth, (height, width) in zip(images, depths, shapes):
+        source = torch.from_numpy(np.concatenate([image.astype(np.float32) / 255.0, depth[..., None]], axis=2)).permute(2, 0, 1)
+        tensors.append(F.pad(source, (0, target_w - width, 0, target_h - height), mode="replicate"))
+    batch = torch.stack(tensors).to(device)
     with torch.inference_mode():
-        output = model(F.pad(source.unsqueeze(0), (0, pad_w, 0, pad_h), mode="reflect").to(device))[-1][:, :, :height, :width].cpu()
-    return (output.permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        outputs = model(batch)[-1].cpu()
+    return [(outputs[index, :, :height, :width].permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8) for index, (height, width) in enumerate(shapes)]
 
 
 def parse_args():
@@ -85,6 +112,7 @@ def parse_args():
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Base-hf", help="Hugging Face Transformers Depth Anything V2 model ID.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize. 0 preserves the original resolution.")
+    parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "udpnet")
     parser.add_argument("--save-images", action="store_true")
@@ -103,17 +131,22 @@ def main():
     rows = []
     inference_start = time.perf_counter()
     model_inference_seconds = 0.0
-    for dataset, image_id, hazy_path, clear_path in pairs:
-        hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
-        hazy, clear = resize_pair(hazy, clear, args.max_side)
-        depth_path = args.depth_dir / hazy_path.name if args.depth_dir else None
-        start = time.perf_counter(); output = infer_one(model, hazy, depth_path, args.device, depth_pipeline); runtime_ms = (time.perf_counter() - start) * 1000
-        model_inference_seconds += runtime_ms / 1000.0
-        hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear)
-        hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
-        row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
-        rows.append(row); print(dataset, image_id, f"PSNR={output_psnr:.4f}", f"SSIM={output_ssim:.4f}", f"ms={runtime_ms:.2f}")
-        if args.save_images: cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_udpnet.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+    for offset in range(0, len(pairs), args.batch_size):
+        batch_pairs = pairs[offset:offset + args.batch_size]; prepared = []
+        for item in batch_pairs:
+            dataset, image_id, hazy_path, clear_path = item
+            hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB); clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
+            hazy, clear = resize_pair(hazy, clear, args.max_side); prepared.append((item, hazy, clear))
+        depth_paths = [args.depth_dir / item[0][2].name if args.depth_dir else None for item in prepared]
+        if args.device.startswith("cuda"): torch.cuda.synchronize()
+        start = time.perf_counter(); outputs = infer_batch(model, [item[1] for item in prepared], depth_paths, args.device, depth_pipeline)
+        if args.device.startswith("cuda"): torch.cuda.synchronize()
+        runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared); model_inference_seconds += (runtime_ms / 1000.0) * len(prepared)
+        for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
+            hazy_psnr, output_psnr = calculate_psnr(hazy, clear), calculate_psnr(output, clear); hazy_ssim, output_ssim = calculate_ssim(hazy, clear), calculate_ssim(output, clear)
+            row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": hazy_psnr, "hazy_ssim": hazy_ssim, "output_psnr": output_psnr, "output_ssim": output_ssim, "psnr_improvement": output_psnr - hazy_psnr, "ssim_improvement": output_ssim - hazy_ssim, "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
+            rows.append(row); print(dataset, image_id, f"PSNR={output_psnr:.4f}", f"SSIM={output_ssim:.4f}", f"ms={runtime_ms:.2f}")
+            if args.save_images: cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_udpnet.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
     if not rows: raise RuntimeError("No paired images found.")
     with (args.output_dir / "per_image.csv").open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)

@@ -36,13 +36,21 @@ def load_model(args):
     return model.to(args.device).eval()
 
 
-def infer_one(model, image, device):
-    height, width = image.shape[:2]
-    tensor = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-    pad_h, pad_w = (8 - height % 8) % 8, (8 - width % 8) % 8
+def infer_batch(model, images, device):
+    shapes = [image.shape[:2] for image in images]
+    target_h = (max(height for height, _ in shapes) + 7) // 8 * 8
+    target_w = (max(width for _, width in shapes) + 7) // 8 * 8
+    tensors = []
+    for image, (height, width) in zip(images, shapes):
+        tensor = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1)
+        tensors.append(F.pad(tensor, (0, target_w - width, 0, target_h - height), mode="replicate"))
+    batch = torch.stack(tensors).to(device)
     with torch.inference_mode():
-        output = model(F.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect"))[:, :, :height, :width]
-    return (output.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        outputs = model(batch).cpu()
+    return [
+        (outputs[index, :, :height, :width].permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        for index, (height, width) in enumerate(shapes)
+    ]
 
 
 def parse_args():
@@ -53,6 +61,7 @@ def parse_args():
     parser.add_argument("--checkpoint", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2" / "OTS-B.pth")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=0, help="Optional whole-image resize; 0 keeps original resolution.")
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "utils" / "evaluation_results" / "mb_taylorformerv2")
     parser.add_argument("--save-images", action="store_true")
@@ -71,18 +80,25 @@ def main():
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
     inference_start = time.perf_counter()
-    for dataset, image_id, hazy_path, clear_path in pairs:
-        hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
-        clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
-        hazy, clear = resize_pair(hazy, clear, args.max_side)
+    for offset in range(0, len(pairs), args.batch_size):
+        batch_pairs = pairs[offset:offset + args.batch_size]
+        prepared = []
+        for item in batch_pairs:
+            dataset, image_id, hazy_path, clear_path = item
+            hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
+            clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
+            hazy, clear = resize_pair(hazy, clear, args.max_side)
+            prepared.append((item, hazy, clear))
+        if args.device.startswith("cuda"): torch.cuda.synchronize()
         start = time.perf_counter()
-        output = infer_one(model, hazy, args.device)
-        runtime_ms = (time.perf_counter() - start) * 1000
-        row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear), "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear), "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear), "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear), "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
-        rows.append(row)
-        if args.save_images:
-            cv2.imwrite(str(image_dir / f"{dataset}_{image_id}_mb_taylorformerv2.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
-        print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
+        outputs = infer_batch(model, [item[1] for item in prepared], args.device)
+        if args.device.startswith("cuda"): torch.cuda.synchronize()
+        runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared)
+        for ((dataset, image_id, hazy_path, clear_path), hazy, clear), output in zip(prepared, outputs):
+            row = {"dataset": dataset, "image_id": image_id, "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id), "width": clear.shape[1], "height": clear.shape[0], "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear), "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear), "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear), "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear), "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path)}
+            rows.append(row)
+            if args.save_images: cv2.imwrite(str(image_dir / f"{dataset}_{image_id}_mb_taylorformerv2.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+            print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
     inference_seconds = time.perf_counter() - inference_start
     if not rows:
         raise RuntimeError("No paired images found.")
