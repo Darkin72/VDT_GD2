@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
 import random
+from tqdm.auto import tqdm
 from .model import HazeWaveNet, haze_wavelet_loss
 
 class PairedImages(Dataset):
@@ -109,9 +110,11 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.5)
     history = []
     best_val_loss, stale_epochs = float("inf"), 0
-    for epoch in range(args.epochs):
+    epoch_bar = tqdm(range(args.epochs), desc="Training", unit="epoch")
+    for epoch in epoch_bar:
         model.train(); total = total_psnr = total_ssim = 0.0; batches = 0
-        for hazy, clear in loader:
+        batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False)
+        for hazy, clear in batch_bar:
             hazy, clear = hazy.to(device), clear.to(device); optimizer.zero_grad(set_to_none=True)
             if args.multi_scale:
                 scale = random.choice((64, 128, 256))
@@ -120,13 +123,15 @@ def main() -> None:
             pred = model(hazy); loss = haze_wavelet_loss(pred, clear); loss.backward(); optimizer.step()
             psnr, ssim = image_metrics(pred.detach(), clear)
             total += loss.item(); total_psnr += psnr; total_ssim += ssim; batches += 1
+            batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
         train_values = (total / batches, total_psnr / batches, total_ssim / batches)
         if val_loader is not None:
             val_values = evaluate(model, val_loader, device)
             history.append({"epoch": epoch + 1, "train_loss": train_values[0], "train_psnr": train_values[1], "train_ssim": train_values[2], "val_loss": val_values[0], "val_psnr": val_values[1], "val_ssim": val_values[2]})
-            print(f"epoch {epoch + 1:03d}/{args.epochs} | "
-                  f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | "
-                  f"val loss={val_values[0]:.5f} PSNR={val_values[1]:.2f} SSIM={val_values[2]:.4f}")
+            epoch_bar.set_postfix(loss=f"{train_values[0]:.5f}", psnr=f"{train_values[1]:.2f}", val_loss=f"{val_values[0]:.5f}", val_psnr=f"{val_values[1]:.2f}")
+            epoch_bar.write(f"epoch {epoch + 1:03d}/{args.epochs} | "
+                            f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | "
+                            f"val loss={val_values[0]:.5f} PSNR={val_values[1]:.2f} SSIM={val_values[2]:.4f}")
             if val_values[0] < best_val_loss:
                 best_val_loss, stale_epochs = val_values[0], 0
                 torch.save({"model": model.state_dict(), "epoch": epoch + 1}, args.out)
@@ -134,12 +139,13 @@ def main() -> None:
                 stale_epochs += 1
         else:
             history.append({"epoch": epoch + 1, "train_loss": train_values[0], "train_psnr": train_values[1], "train_ssim": train_values[2]})
-            print(f"epoch {epoch + 1:03d}/{args.epochs} | "
-                  f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable")
+            epoch_bar.set_postfix(loss=f"{train_values[0]:.5f}", psnr=f"{train_values[1]:.2f}", ssim=f"{train_values[2]:.4f}")
+            epoch_bar.write(f"epoch {epoch + 1:03d}/{args.epochs} | "
+                            f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable")
         if scheduler is not None:
             scheduler.step()
         if args.patience and stale_epochs >= args.patience:
-            print(f"Early stopping at epoch {epoch + 1}; validation loss did not improve for {args.patience} epochs.")
+            epoch_bar.write(f"Early stopping at epoch {epoch + 1}; validation loss did not improve for {args.patience} epochs.")
             break
     if val_loader is None:
         torch.save({"model": model.state_dict(), "epoch": len(history)}, args.out)
