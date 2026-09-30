@@ -6,6 +6,8 @@ Expected layout: DATA/hazy/* and DATA/clear/*. Hazy suffixes such as
 from __future__ import annotations
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -110,10 +112,13 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.5)
     history = []
     best_val_loss, stale_epochs = float("inf"), 0
-    epoch_bar = tqdm(range(args.epochs), desc="Training", unit="epoch")
+    show_tqdm = os.environ.get("HW_TQDM", "auto") == "1" or (os.environ.get("HW_TQDM", "auto") == "auto" and sys.stdout.isatty())
+    epoch_bar = tqdm(range(args.epochs), desc="Training", unit="epoch", disable=not show_tqdm)
+    show_batch_progress = show_tqdm and os.environ.get("HW_TQDM_BATCH", "0") == "1"
     for epoch in epoch_bar:
         model.train(); total = total_psnr = total_ssim = 0.0; batches = 0
-        batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False)
+        # Nested tqdm redraws become one line per update in Colab's `!python` output.
+        batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False, disable=not show_batch_progress)
         for hazy, clear in batch_bar:
             hazy, clear = hazy.to(device), clear.to(device); optimizer.zero_grad(set_to_none=True)
             if args.multi_scale:
