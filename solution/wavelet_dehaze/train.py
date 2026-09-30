@@ -91,6 +91,8 @@ def main() -> None:
     ap.add_argument("--patience", type=int, default=0, help="Early stopping patience; 0 disables it")
     ap.add_argument("--out", type=Path, default=Path("haze_wavelet.pt"))
     ap.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    ap.add_argument("--multi-gpu", action="store_true", help="Use all visible CUDA devices via DataParallel")
+    ap.add_argument("--num-workers", type=int, default=0, help="DataLoader worker processes")
     ap.add_argument("--val-data", type=Path, default=None,
                     help="Validation directory containing hazy/ and clear/ (default: sibling val directory)")
     ap.add_argument("--history", type=Path, default=None,
@@ -100,10 +102,14 @@ def main() -> None:
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     print(f"device={device}")
-    loader = DataLoader(PairedImages(args.data, args.size, args.augment), args.batch_size, shuffle=True, num_workers=0)
+    loader = DataLoader(PairedImages(args.data, args.size, args.augment), args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0)
     val_root = args.val_data or args.data.parent / "val"
-    val_loader = DataLoader(PairedImages(val_root, args.size), args.batch_size, shuffle=False, num_workers=0) if val_root.is_dir() else None
+    val_loader = DataLoader(PairedImages(val_root, args.size), args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0) if val_root.is_dir() else None
     model = HazeWaveNet().to(device)
+    if args.multi_gpu:
+        if device != "cuda" or not torch.cuda.is_available() or torch.cuda.device_count() < 2:
+            raise RuntimeError("--multi-gpu requires at least two visible CUDA devices")
+        model = torch.nn.DataParallel(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
     scheduler = None
     if args.scheduler == "cosine":
@@ -139,7 +145,8 @@ def main() -> None:
                             f"val loss={val_values[0]:.5f} PSNR={val_values[1]:.2f} SSIM={val_values[2]:.4f}")
             if val_values[0] < best_val_loss:
                 best_val_loss, stale_epochs = val_values[0], 0
-                torch.save({"model": model.state_dict(), "epoch": epoch + 1}, args.out)
+                state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
+                torch.save({"model": state, "epoch": epoch + 1}, args.out)
             else:
                 stale_epochs += 1
         else:
@@ -153,7 +160,8 @@ def main() -> None:
             epoch_bar.write(f"Early stopping at epoch {epoch + 1}; validation loss did not improve for {args.patience} epochs.")
             break
     if val_loader is None:
-        torch.save({"model": model.state_dict(), "epoch": len(history)}, args.out)
+        state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
+        torch.save({"model": state, "epoch": len(history)}, args.out)
     if args.history:
         args.history.parent.mkdir(parents=True, exist_ok=True)
         args.history.write_text(json.dumps(history, indent=2), encoding="utf-8")
