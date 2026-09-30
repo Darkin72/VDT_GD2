@@ -105,6 +105,7 @@ def main() -> None:
     loader = DataLoader(PairedImages(args.data, args.size, args.augment), args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0)
     val_root = args.val_data or args.data.parent / "val"
     val_loader = DataLoader(PairedImages(val_root, args.size), args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0) if val_root.is_dir() else None
+    print(f"train_images={len(loader.dataset)} train_batches={len(loader)} batch_size={args.batch_size} workers={args.num_workers}", flush=True)
     model = HazeWaveNet().to(device)
     if args.multi_gpu:
         if device != "cuda" or not torch.cuda.is_available() or torch.cuda.device_count() < 2:
@@ -125,7 +126,7 @@ def main() -> None:
         model.train(); total = total_psnr = total_ssim = 0.0; batches = 0
         # Nested tqdm redraws become one line per update in Colab's `!python` output.
         batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False, disable=not show_batch_progress)
-        for hazy, clear in batch_bar:
+        for batch_index, (hazy, clear) in enumerate(batch_bar, start=1):
             hazy, clear = hazy.to(device), clear.to(device); optimizer.zero_grad(set_to_none=True)
             if args.multi_scale:
                 scale = random.choice((64, 128, 256))
@@ -135,6 +136,8 @@ def main() -> None:
             psnr, ssim = image_metrics(pred.detach(), clear)
             total += loss.item(); total_psnr += psnr; total_ssim += ssim; batches += 1
             batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
+            if not show_tqdm and (batch_index == 1 or batch_index == len(loader) or batch_index % max(1, len(loader) // 10) == 0):
+                print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / batches:.2f} SSIM={total_ssim / batches:.4f}", flush=True)
         train_values = (total / batches, total_psnr / batches, total_ssim / batches)
         if val_loader is not None:
             val_values = evaluate(model, val_loader, device)
