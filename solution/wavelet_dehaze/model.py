@@ -5,6 +5,7 @@ LL is used for haze correction, while LH/HL/HH receive a lightweight detail path
 """
 from __future__ import annotations
 
+import time
 import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
@@ -96,6 +97,44 @@ class HazeWaveNet(nn.Module):
         result = torch.tanh(self.out(feat))
         result = F.interpolate(result, size=original_size, mode="bilinear", align_corners=False)
         return (result + x).clamp(0.0, 1.0)
+
+    @torch.inference_mode()
+    def profile_forward(self, x: Tensor, repeats: int = 1) -> tuple[Tensor, dict[str, float]]:
+        """Profile inference stages in milliseconds, synchronizing CUDA when needed."""
+        if repeats < 1:
+            raise ValueError("repeats must be positive")
+
+        def now() -> float:
+            if x.is_cuda:
+                torch.cuda.synchronize(x.device)
+            return time.perf_counter()
+
+        totals = {name: 0.0 for name in (
+            "dcp_fixed_prior", "dwt_mfde_decomposition", "low_frequency_fegg_fegb",
+            "high_frequency_vp_vr", "wim_reconstruction", "final_refinement", "total",
+        )}
+        result = None
+        for _ in range(repeats):
+            start = now()
+            t = now(); _, trend = dark_trend(x); totals["dcp_fixed_prior"] += now() - t
+            t = now(); feat = self.stem(x); totals["dwt_mfde_decomposition"] += now() - t
+            details = []
+            for i in range(self.levels):
+                t = now(); ll, lh, hl, hh = haar_dwt(feat); totals["dwt_mfde_decomposition"] += now() - t
+                t = now(); feat = self.low[i](ll, trend); totals["low_frequency_fegg_fegb"] += now() - t
+                t = now(); details.append(self.high[i](torch.cat((lh, hl, hh), dim=1))); totals["high_frequency_vp_vr"] += now() - t
+            t = now()
+            for i in range(self.levels - 1, -1, -1):
+                feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
+                feat = F.relu(self.merge[i](torch.cat((feat, details[i]), dim=1)), inplace=True)
+            totals["wim_reconstruction"] += now() - t
+            t = now()
+            result = torch.tanh(self.out(feat))
+            result = F.interpolate(result, size=x.shape[-2:], mode="bilinear", align_corners=False)
+            result = (result + x).clamp(0.0, 1.0)
+            totals["final_refinement"] += now() - t
+            totals["total"] += now() - start
+        return result, {name: value * 1000.0 / repeats for name, value in totals.items()}
 
 
 def haze_wavelet_loss(pred: Tensor, target: Tensor, theta: float = 0.2) -> Tensor:
