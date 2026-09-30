@@ -159,6 +159,14 @@ def main() -> None:
                             f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable")
         if scheduler is not None:
             scheduler.step()
+        # Synthetic Kaggle datasets have no validation split; persist the latest
+        # state and history every epoch so long runs remain recoverable.
+        if val_loader is None:
+            state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
+            torch.save({"model": state, "epoch": epoch + 1}, args.out)
+        if args.history:
+            args.history.parent.mkdir(parents=True, exist_ok=True)
+            args.history.write_text(json.dumps(history, indent=2), encoding="utf-8")
         if args.patience and stale_epochs >= args.patience:
             epoch_bar.write(f"Early stopping at epoch {epoch + 1}; validation loss did not improve for {args.patience} epochs.")
             break
