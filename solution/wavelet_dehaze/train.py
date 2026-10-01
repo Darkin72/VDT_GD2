@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from PIL import Image
 import numpy as np
 import random
@@ -41,8 +41,13 @@ class PairedImages(Dataset):
     def __getitem__(self, i):
         out = []
         for path in self.items[i]:
-            image = Image.open(path).convert("RGB").resize((self.size, self.size), Image.Resampling.BILINEAR)
-            out.append(torch.from_numpy(np.array(image, copy=True)).float().div(255).permute(2, 0, 1))
+            with Image.open(path) as source:
+                converted = source.convert("RGB")
+                resized = converted.resize((self.size, self.size), Image.Resampling.BILINEAR)
+                array = np.array(resized, copy=True)
+                resized.close()
+                converted.close()
+            out.append(torch.from_numpy(array).float().div(255).permute(2, 0, 1))
         if self.augment:
             if random.random() < 0.5:
                 out = [torch.flip(x, (2,)) for x in out]
@@ -70,6 +75,21 @@ def image_metrics(pred: torch.Tensor, target: torch.Tensor) -> tuple[float, floa
     return psnr.item(), ssim.item()
 
 
+def grouped_train_val_indices(dataset: PairedImages, val_fraction: float, seed: int):
+    """Split by clear image so haze variants of one scene cannot leak across splits."""
+    groups = {}
+    for index, (_, clear_path) in enumerate(dataset.items):
+        groups.setdefault(clear_path, []).append(index)
+    clear_groups = list(groups.values())
+    if len(clear_groups) < 2:
+        raise ValueError("Grouped validation split requires at least two distinct clear images")
+    random.Random(seed).shuffle(clear_groups)
+    val_groups = max(1, min(len(clear_groups) - 1, round(len(clear_groups) * val_fraction)))
+    val_indices = [index for group in clear_groups[:val_groups] for index in group]
+    train_indices = [index for group in clear_groups[val_groups:] for index in group]
+    return train_indices, val_indices
+
+
 @torch.no_grad()
 def evaluate(model: HazeWaveNet, loader: DataLoader, device: str) -> tuple[float, float, float]:
     model.eval(); total_loss = total_psnr = total_ssim = 0.0; batches = 0
@@ -93,6 +113,10 @@ def main() -> None:
     ap.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     ap.add_argument("--multi-gpu", action="store_true", help="Use all visible CUDA devices via DataParallel")
     ap.add_argument("--num-workers", type=int, default=0, help="DataLoader worker processes")
+    ap.add_argument("--prefetch-factor", type=int, default=1, help="Batches prefetched by each worker")
+    ap.add_argument("--pin-memory", action="store_true", help="Pin DataLoader CPU memory")
+    ap.add_argument("--val-fraction", type=float, default=0.0, help="Grouped validation fraction when --val-data is absent")
+    ap.add_argument("--split-seed", type=int, default=42, help="Seed for the grouped train/validation split")
     ap.add_argument("--val-data", type=Path, default=None,
                     help="Validation directory containing hazy/ and clear/ (default: sibling val directory)")
     ap.add_argument("--history", type=Path, default=None,
@@ -102,10 +126,29 @@ def main() -> None:
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     print(f"device={device}")
-    loader = DataLoader(PairedImages(args.data, args.size, args.augment), args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0)
+    if not 0.0 <= args.val_fraction < 1.0:
+        raise ValueError("--val-fraction must be in [0, 1)")
+    train_base = PairedImages(args.data, args.size, args.augment)
     val_root = args.val_data or args.data.parent / "val"
-    val_loader = DataLoader(PairedImages(val_root, args.size), args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=device == "cuda", persistent_workers=args.num_workers > 0) if val_root.is_dir() else None
-    print(f"train_images={len(loader.dataset)} train_batches={len(loader)} batch_size={args.batch_size} workers={args.num_workers}", flush=True)
+    if val_root.is_dir():
+        train_dataset, val_dataset = train_base, PairedImages(val_root, args.size)
+    elif args.val_fraction > 0:
+        val_base = PairedImages(args.data, args.size, augment=False)
+        train_indices, val_indices = grouped_train_val_indices(train_base, args.val_fraction, args.split_seed)
+        train_dataset, val_dataset = Subset(train_base, train_indices), Subset(val_base, val_indices)
+    else:
+        train_dataset, val_dataset = train_base, None
+    loader_kwargs = {
+        "batch_size": args.batch_size,
+        "num_workers": args.num_workers,
+        "pin_memory": args.pin_memory and device == "cuda",
+        "persistent_workers": False,
+    }
+    if args.num_workers > 0:
+        loader_kwargs["prefetch_factor"] = args.prefetch_factor
+    loader = DataLoader(train_dataset, shuffle=True, **loader_kwargs)
+    val_loader = DataLoader(val_dataset, shuffle=False, **loader_kwargs) if val_dataset is not None else None
+    print(f"train_images={len(train_dataset)} val_images={len(val_dataset) if val_dataset is not None else 0} train_batches={len(loader)} batch_size={args.batch_size} workers={args.num_workers} prefetch={args.prefetch_factor if args.num_workers else 0}", flush=True)
     model = HazeWaveNet().to(device)
     if args.multi_gpu:
         if device != "cuda" or not torch.cuda.is_available() or torch.cuda.device_count() < 2:
@@ -159,8 +202,7 @@ def main() -> None:
                             f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable")
         if scheduler is not None:
             scheduler.step()
-        # Synthetic Kaggle datasets have no validation split; persist the latest
-        # state and history every epoch so long runs remain recoverable.
+        # When validation is unavailable, persist the latest state every epoch.
         if val_loader is None:
             state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
             torch.save({"model": state, "epoch": epoch + 1}, args.out)
