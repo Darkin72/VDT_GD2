@@ -44,9 +44,14 @@ class PairedImages(Dataset):
         for path in self.items[i]:
             with Image.open(path) as source:
                 converted = source.convert("RGB")
-                resized = converted.resize((self.size, self.size), Image.Resampling.BILINEAR)
-                array = np.array(resized, copy=True)
-                resized.close()
+                # Cached Kaggle images already have the target size; avoid a
+                # second interpolation pass on every sample.
+                if converted.size == (self.size, self.size):
+                    array = np.array(converted, copy=True)
+                else:
+                    resized = converted.resize((self.size, self.size), Image.Resampling.BILINEAR)
+                    array = np.array(resized, copy=True)
+                    resized.close()
                 converted.close()
             out.append(torch.from_numpy(array).float().div(255).permute(2, 0, 1))
         if self.augment:
