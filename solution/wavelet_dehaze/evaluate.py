@@ -184,7 +184,12 @@ def main():
             row["data_origin"] = "synthetic" if dataset.startswith("sots") else "real"
             row["fog_level"] = "heavy" if "0.2" in stem else "medium" if any(x in stem for x in ("0.12", "0.16")) else "light"
         all_rows.extend(rows); total_time += inference_time; total_images += len(pair_list)
+        timing_means = {key: float(np.mean([row[key] for row in rows])) for key in STAGE_KEYS}
         print(f"[{label}] mean_psnr={np.mean([row['output_psnr'] for row in rows]):.3f} mean_ssim={np.mean([row['output_ssim'] for row in rows]):.4f}", flush=True)
+        print(f"[{label}] mean_timing_ms=" + ", ".join(f"{key}={value:.3f}" for key, value in timing_means.items()), flush=True)
+        timing_path = args.output_dir / f"timing_{label.replace('-', '_')}.json"
+        timing_path.parent.mkdir(parents=True, exist_ok=True)
+        timing_path.write_text(json.dumps({"dataset": label, "images": len(rows), "mean_ms": timing_means}, indent=2), encoding="utf-8")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     paths = export_excel_reports("HazeWaveNet", all_rows, args.output_dir)
     performance = write_hardware_report(args.output_dir, "HazeWaveNet", total_images, total_time, total_time)

@@ -1,49 +1,49 @@
-# VDT-GD2: ÄÃ¡nh giÃ¡ cÃ¡c phÆ°Æ¡ng phÃ¡p khá»­ sÆ°Æ¡ng
+# VDT-GD2: Ã„ÂÃƒÂ¡nh giÃƒÂ¡ cÃƒÂ¡c phÃ†Â°Ã†Â¡ng phÃƒÂ¡p khÃ¡Â»Â­ sÃ†Â°Ã†Â¡ng
 
-Repository nÃ y dÃ¹ng chung pipeline Ä‘Ã¡nh giÃ¡ cho GridDehazeNet, DCP vÃ  CAP trÃªn
-SOTS-Indoor, SOTS-Outdoor, O-HAZE vÃ  I-HAZE.
+Repository nÃƒÂ y dÃƒÂ¹ng chung pipeline Ã„â€˜ÃƒÂ¡nh giÃƒÂ¡ cho GridDehazeNet, DCP vÃƒÂ  CAP trÃƒÂªn
+SOTS-Indoor, SOTS-Outdoor, O-HAZE vÃƒÂ  I-HAZE.
 
-## Build HazeWaveNet trÃªn Vast.ai báº±ng standalone BuildKit
+## Build HazeWaveNet trÃƒÂªn Vast.ai bÃ¡ÂºÂ±ng standalone BuildKit
 
-### Pháº¡m vi image
+### PhÃ¡ÂºÂ¡m vi image
 
-Image nÃ y chá»©a mÃ´i trÆ°á»ng train/infer/evaluate cá»§a `solution.wavelet_dehaze`,
-khÃ´ng pháº£i mÃ´i trÆ°á»ng tá»•ng há»£p cho má»i model trong repo. `main.py` chá»‰ in lá»i
-chÃ o; entrypoint train tháº­t lÃ  `python -m solution.wavelet_dehaze.train`.
-Module dÃ¹ng relative imports nÃªn khÃ´ng cháº¡y trá»±c tiáº¿p file `train.py`.
-KhÃ´ng cÃ³ web server, port cáº§n expose hay environment variable application báº¯t
-buá»™c. `HW_TQDM` vÃ  `HW_TQDM_BATCH` chá»‰ Ä‘iá»u khiá»ƒn progress bar.
+Image nÃƒÂ y chÃ¡Â»Â©a mÃƒÂ´i trÃ†Â°Ã¡Â»Âng train/infer/evaluate cÃ¡Â»Â§a `solution.wavelet_dehaze`,
+khÃƒÂ´ng phÃ¡ÂºÂ£i mÃƒÂ´i trÃ†Â°Ã¡Â»Âng tÃ¡Â»â€¢ng hÃ¡Â»Â£p cho mÃ¡Â»Âi model trong repo. `main.py` chÃ¡Â»â€° in lÃ¡Â»Âi
+chÃƒÂ o; entrypoint train thÃ¡ÂºÂ­t lÃƒÂ  `python -m solution.wavelet_dehaze.train`.
+Module dÃƒÂ¹ng relative imports nÃƒÂªn khÃƒÂ´ng chÃ¡ÂºÂ¡y trÃ¡Â»Â±c tiÃ¡ÂºÂ¿p file `train.py`.
+KhÃƒÂ´ng cÃƒÂ³ web server, port cÃ¡ÂºÂ§n expose hay environment variable application bÃ¡ÂºÂ¯t
+buÃ¡Â»â„¢c. `HW_TQDM` vÃƒÂ  `HW_TQDM_BATCH` chÃ¡Â»â€° Ã„â€˜iÃ¡Â»Âu khiÃ¡Â»Æ’n progress bar.
 
-Repo dÃ¹ng `uv` (`pyproject.toml`, `uv.lock`, Python >=3.12), nhÆ°ng dependency
-root thiáº¿u PyTorch/Pillow/numpy vÃ  cÃ¡c package evaluation. Container giá»¯
-PyTorch/CUDA tá»« NGC vÃ  dÃ¹ng `pip` vá»›i
-`solution/wavelet_dehaze/requirements-container.txt` cho package cÃ²n láº¡i;
-khÃ´ng cháº¡y `uv sync` Ä‘á»ƒ trÃ¡nh thay tháº¿ báº£n PyTorch GPU trong base image.
-Haar DWT Ä‘Æ°á»£c viáº¿t báº±ng PyTorch, khÃ´ng cáº§n build extension hay cÃ i OpenCV,
-compiler hoáº·c system dependency bá»• sung ngoÃ i base cho pháº¡m vi image nÃ y.
+Repo dÃƒÂ¹ng `uv` (`pyproject.toml`, `uv.lock`, Python >=3.12), nhÃ†Â°ng dependency
+root thiÃ¡ÂºÂ¿u PyTorch/Pillow/numpy vÃƒÂ  cÃƒÂ¡c package evaluation. Container giÃ¡Â»Â¯
+PyTorch/CUDA tÃ¡Â»Â« NGC vÃƒÂ  dÃƒÂ¹ng `pip` vÃ¡Â»â€ºi
+`solution/wavelet_dehaze/requirements-container.txt` cho package cÃƒÂ²n lÃ¡ÂºÂ¡i;
+khÃƒÂ´ng chÃ¡ÂºÂ¡y `uv sync` Ã„â€˜Ã¡Â»Æ’ trÃƒÂ¡nh thay thÃ¡ÂºÂ¿ bÃ¡ÂºÂ£n PyTorch GPU trong base image.
+Haar DWT Ã„â€˜Ã†Â°Ã¡Â»Â£c viÃ¡ÂºÂ¿t bÃ¡ÂºÂ±ng PyTorch, khÃƒÂ´ng cÃ¡ÂºÂ§n build extension hay cÃƒÂ i OpenCV,
+compiler hoÃ¡ÂºÂ·c system dependency bÃ¡Â»â€¢ sung ngoÃƒÂ i base cho phÃ¡ÂºÂ¡m vi image nÃƒÂ y.
 
-Dockerfile cÅ© Ä‘Æ°á»£c sá»­a ngay táº¡i `solution/wavelet_dehaze/Dockerfile`: bá» script
-setup khÃ´ng tá»“n táº¡i, bá» UID/GID hard-code, cÃ i dependency trÆ°á»›c COPY source,
-chá»‰ COPY HazeWaveNet vÃ  hai utility evaluation. CMD máº·c Ä‘á»‹nh in `train --help`;
-truyá»n command train khi cháº¡y. Image cháº¡y root máº·c Ä‘á»‹nh; cÃ³ thá»ƒ dÃ¹ng
-`--user UID:GID` náº¿u thÆ° má»¥c output trÃªn host Ä‘Æ°á»£c cáº¥p quyá»n ghi tÆ°Æ¡ng á»©ng.
-KhÃ´ng nhÃºng dataset, checkpoint, secret hay cÃ¡c model khÃ¡c vÃ o image.
+Dockerfile cÃ…Â© Ã„â€˜Ã†Â°Ã¡Â»Â£c sÃ¡Â»Â­a ngay tÃ¡ÂºÂ¡i `solution/wavelet_dehaze/Dockerfile`: bÃ¡Â»Â script
+setup khÃƒÂ´ng tÃ¡Â»â€œn tÃ¡ÂºÂ¡i, bÃ¡Â»Â UID/GID hard-code, cÃƒÂ i dependency trÃ†Â°Ã¡Â»â€ºc COPY source,
+chÃ¡Â»â€° COPY HazeWaveNet vÃƒÂ  hai utility evaluation. CMD mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh in `train --help`;
+truyÃ¡Â»Ân command train khi chÃ¡ÂºÂ¡y. Image chÃ¡ÂºÂ¡y root mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh; cÃƒÂ³ thÃ¡Â»Æ’ dÃƒÂ¹ng
+`--user UID:GID` nÃ¡ÂºÂ¿u thÃ†Â° mÃ¡Â»Â¥c output trÃƒÂªn host Ã„â€˜Ã†Â°Ã¡Â»Â£c cÃ¡ÂºÂ¥p quyÃ¡Â»Ân ghi tÃ†Â°Ã†Â¡ng Ã¡Â»Â©ng.
+KhÃƒÂ´ng nhÃƒÂºng dataset, checkpoint, secret hay cÃƒÂ¡c model khÃƒÂ¡c vÃƒÂ o image.
 
-Build yÃªu cáº§u Linux amd64, standalone `buildkitd` Ä‘ang cháº¡y vÃ 
-`buildctl debug workers` thÃ nh cÃ´ng. Native snapshotter khÃ´ng cáº§n cÃº phÃ¡p
-Dockerfile Ä‘áº·c biá»‡t. KhÃ´ng cáº§n Docker daemon, systemd hoáº·c GPU khi build.
-Ubuntu 22.04 cá»§a host khÃ´ng quyáº¿t Ä‘á»‹nh phiÃªn báº£n Ubuntu bÃªn trong image.
-Base máº·c Ä‘á»‹nh giá»¯ nguyÃªn `nvcr.io/nvidia/pytorch:26.04-py3` tá»« Dockerfile cÅ©;
-cáº§n xÃ¡c nháº­n tag pull Ä‘Æ°á»£c vÃ  driver mÃ¡y cháº¡y tÆ°Æ¡ng thÃ­ch vá»›i CUDA cá»§a base.
-CÃ³ thá»ƒ Ä‘á»•i báº±ng build arg `BASE_IMAGE`; khÃ´ng suy ra CUDA version tá»« H100.
+Build yÃƒÂªu cÃ¡ÂºÂ§u Linux amd64, standalone `buildkitd` Ã„â€˜ang chÃ¡ÂºÂ¡y vÃƒÂ 
+`buildctl debug workers` thÃƒÂ nh cÃƒÂ´ng. Native snapshotter khÃƒÂ´ng cÃ¡ÂºÂ§n cÃƒÂº phÃƒÂ¡p
+Dockerfile Ã„â€˜Ã¡ÂºÂ·c biÃ¡Â»â€¡t. KhÃƒÂ´ng cÃ¡ÂºÂ§n Docker daemon, systemd hoÃ¡ÂºÂ·c GPU khi build.
+Ubuntu 22.04 cÃ¡Â»Â§a host khÃƒÂ´ng quyÃ¡ÂºÂ¿t Ã„â€˜Ã¡Â»â€¹nh phiÃƒÂªn bÃ¡ÂºÂ£n Ubuntu bÃƒÂªn trong image.
+Base mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh giÃ¡Â»Â¯ nguyÃƒÂªn `nvcr.io/nvidia/pytorch:26.04-py3` tÃ¡Â»Â« Dockerfile cÃ…Â©;
+cÃ¡ÂºÂ§n xÃƒÂ¡c nhÃ¡ÂºÂ­n tag pull Ã„â€˜Ã†Â°Ã¡Â»Â£c vÃƒÂ  driver mÃƒÂ¡y chÃ¡ÂºÂ¡y tÃ†Â°Ã†Â¡ng thÃƒÂ­ch vÃ¡Â»â€ºi CUDA cÃ¡Â»Â§a base.
+CÃƒÂ³ thÃ¡Â»Æ’ Ã„â€˜Ã¡Â»â€¢i bÃ¡ÂºÂ±ng build arg `BASE_IMAGE`; khÃƒÂ´ng suy ra CUDA version tÃ¡Â»Â« H100.
 
-### 1. Git clone trÃªn Vast.ai
+### 1. Git clone trÃƒÂªn Vast.ai
 
-Nhá»¯ng thay Ä‘á»•i containerization pháº£i cÃ³ trong revision Ä‘Æ°á»£c clone (workspace
-nÃ y chÆ°a Ä‘Æ°á»£c commit/push tá»± Ä‘á»™ng). Má»™t sá»‘ dataset hiá»‡n Ä‘Æ°á»£c Git track;
-`.dockerignore` chá»‰ loáº¡i chÃºng khá»i build context, khÃ´ng khá»i lá»‹ch sá»­ Git.
-Náº¿u Git server há»— trá»£ partial clone, clone source cáº§n thiáº¿t mÃ  khÃ´ng checkout
-dataset báº±ng cÃ¡c lá»‡nh sau:
+NhÃ¡Â»Â¯ng thay Ã„â€˜Ã¡Â»â€¢i containerization phÃ¡ÂºÂ£i cÃƒÂ³ trong revision Ã„â€˜Ã†Â°Ã¡Â»Â£c clone (workspace
+nÃƒÂ y chÃ†Â°a Ã„â€˜Ã†Â°Ã¡Â»Â£c commit/push tÃ¡Â»Â± Ã„â€˜Ã¡Â»â„¢ng). MÃ¡Â»â„¢t sÃ¡Â»â€˜ dataset hiÃ¡Â»â€¡n Ã„â€˜Ã†Â°Ã¡Â»Â£c Git track;
+`.dockerignore` chÃ¡Â»â€° loÃ¡ÂºÂ¡i chÃƒÂºng khÃ¡Â»Âi build context, khÃƒÂ´ng khÃ¡Â»Âi lÃ¡Â»â€¹ch sÃ¡Â»Â­ Git.
+NÃ¡ÂºÂ¿u Git server hÃ¡Â»â€” trÃ¡Â»Â£ partial clone, clone source cÃ¡ÂºÂ§n thiÃ¡ÂºÂ¿t mÃƒÂ  khÃƒÂ´ng checkout
+dataset bÃ¡ÂºÂ±ng cÃƒÂ¡c lÃ¡Â»â€¡nh sau:
 
 ```bash
 cd /root
@@ -55,13 +55,13 @@ git checkout
 buildctl debug workers
 ```
 
-DehazeDDPM, MB-TaylorFormerV2, UDPNet Ä‘ang untracked khi chuáº©n bá»‹ hÆ°á»›ng dáº«n;
-GridDehazeNet lÃ  gitlink. Image nÃ y khÃ´ng phá»¥ thuá»™c nhá»¯ng thÆ° má»¥c Ä‘Ã³.
+DehazeDDPM, MB-TaylorFormerV2, UDPNet Ã„â€˜ang untracked khi chuÃ¡ÂºÂ©n bÃ¡Â»â€¹ hÃ†Â°Ã¡Â»â€ºng dÃ¡ÂºÂ«n;
+GridDehazeNet lÃƒÂ  gitlink. Image nÃƒÂ y khÃƒÂ´ng phÃ¡Â»Â¥ thuÃ¡Â»â„¢c nhÃ¡Â»Â¯ng thÃ†Â° mÃ¡Â»Â¥c Ã„â€˜ÃƒÂ³.
 
-### 2. Táº£i dataset trÃªn Vast.ai
+### 2. TÃ¡ÂºÂ£i dataset trÃƒÂªn Vast.ai
 
-KhÃ´ng cáº§n táº£i toÃ n bá»™ dataset vá» mÃ¡y cÃ¡ nhÃ¢n. Táº£i vÃ o host Vast.ai, ngoÃ i repo
-vÃ  ngoÃ i image. Táº£i cáº£ ITS, OTS vÃ  SOTS test theo notebook Colab:
+KhÃƒÂ´ng cÃ¡ÂºÂ§n tÃ¡ÂºÂ£i toÃƒÂ n bÃ¡Â»â„¢ dataset vÃ¡Â»Â mÃƒÂ¡y cÃƒÂ¡ nhÃƒÂ¢n. TÃ¡ÂºÂ£i vÃƒÂ o host Vast.ai, ngoÃƒÂ i repo
+vÃƒÂ  ngoÃƒÂ i image. TÃ¡ÂºÂ£i cÃ¡ÂºÂ£ ITS, OTS vÃƒÂ  SOTS test theo notebook Colab:
 
 ```bash
 python3 -m venv /root/kaggle-download-env
@@ -71,34 +71,34 @@ chmod +x scripts/download_kaggle_datasets.sh
 bash scripts/download_kaggle_datasets.sh
 ```
 
-Náº¿u thiáº¿u `venv`, cÃ i `python3-venv` báº±ng apt trÆ°á»›c bÆ°á»›c nÃ y. Cáº§n Internet,
-quyá»n truy cáº­p dataset vÃ  Ä‘á»§ disk cho archive láº«n dá»¯ liá»‡u giáº£i nÃ©n. Náº¿u Kaggle
-yÃªu cáº§u Ä‘Äƒng nháº­p, cung cáº¥p credential `/root/.kaggle/kaggle.json` vÃ  Ä‘áº·t
-`chmod 600 /root/.kaggle/kaggle.json`; khÃ´ng Ä‘Æ°a credential vÃ o repo/image.
-KhÃ´ng dÃ¹ng `datasets list --max-size 5`: giá»›i háº¡n Ä‘Ã³ tÃ­nh theo bytes.
+NÃ¡ÂºÂ¿u thiÃ¡ÂºÂ¿u `venv`, cÃƒÂ i `python3-venv` bÃ¡ÂºÂ±ng apt trÃ†Â°Ã¡Â»â€ºc bÃ†Â°Ã¡Â»â€ºc nÃƒÂ y. CÃ¡ÂºÂ§n Internet,
+quyÃ¡Â»Ân truy cÃ¡ÂºÂ­p dataset vÃƒÂ  Ã„â€˜Ã¡Â»Â§ disk cho archive lÃ¡ÂºÂ«n dÃ¡Â»Â¯ liÃ¡Â»â€¡u giÃ¡ÂºÂ£i nÃƒÂ©n. NÃ¡ÂºÂ¿u Kaggle
+yÃƒÂªu cÃ¡ÂºÂ§u Ã„â€˜Ã„Æ’ng nhÃ¡ÂºÂ­p, cung cÃ¡ÂºÂ¥p credential `/root/.kaggle/kaggle.json` vÃƒÂ  Ã„â€˜Ã¡ÂºÂ·t
+`chmod 600 /root/.kaggle/kaggle.json`; khÃƒÂ´ng Ã„â€˜Ã†Â°a credential vÃƒÂ o repo/image.
+KhÃƒÂ´ng dÃƒÂ¹ng `datasets list --max-size 5`: giÃ¡Â»â€ºi hÃ¡ÂºÂ¡n Ã„â€˜ÃƒÂ³ tÃƒÂ­nh theo bytes.
 
-Archive cÃ³ thá»ƒ lá»“ng thÆ° má»¥c. Positional argument `data` pháº£i lÃ  thÆ° má»¥c cha
-trá»±c tiáº¿p chá»©a cáº£ `hazy/` vÃ  `clear/`. VÃ­ dá»¥ náº¿u káº¿t quáº£ `find` lÃ 
-`/root/clearair-data/ITS/ITS/hazy`, Ä‘Æ°á»ng dáº«n container cáº§n truyá»n sáº½ lÃ 
-`/workspace/ClearAIR/dataset/ITS/ITS`, khÃ´ng pháº£i `dataset/ITS`.
-KhÃ´ng giáº£ Ä‘á»‹nh táº£i Kaggle tá»± táº¡o train/val split. Vá»›i ITS chÆ°a chia split,
-dÃ¹ng `--val-fraction 0.1`: trainer chia theo clear image Ä‘á»ƒ trÃ¡nh leakage.
-Vá»›i I-HAZE Ä‘Ã£ chia, truyá»n `I-HAZE/train` vÃ  `--val-data .../I-HAZE/val`.
+Archive cÃƒÂ³ thÃ¡Â»Æ’ lÃ¡Â»â€œng thÃ†Â° mÃ¡Â»Â¥c. Positional argument `data` phÃ¡ÂºÂ£i lÃƒÂ  thÃ†Â° mÃ¡Â»Â¥c cha
+trÃ¡Â»Â±c tiÃ¡ÂºÂ¿p chÃ¡Â»Â©a cÃ¡ÂºÂ£ `hazy/` vÃƒÂ  `clear/`. VÃƒÂ­ dÃ¡Â»Â¥ nÃ¡ÂºÂ¿u kÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ `find` lÃƒÂ 
+`/root/clearair-data/ITS/ITS/hazy`, Ã„â€˜Ã†Â°Ã¡Â»Âng dÃ¡ÂºÂ«n container cÃ¡ÂºÂ§n truyÃ¡Â»Ân sÃ¡ÂºÂ½ lÃƒÂ 
+`/workspace/ClearAIR/dataset/ITS/ITS`, khÃƒÂ´ng phÃ¡ÂºÂ£i `dataset/ITS`.
+KhÃƒÂ´ng giÃ¡ÂºÂ£ Ã„â€˜Ã¡Â»â€¹nh tÃ¡ÂºÂ£i Kaggle tÃ¡Â»Â± tÃ¡ÂºÂ¡o train/val split. VÃ¡Â»â€ºi ITS chÃ†Â°a chia split,
+dÃƒÂ¹ng `--val-fraction 0.1`: trainer chia theo clear image Ã„â€˜Ã¡Â»Æ’ trÃƒÂ¡nh leakage.
+VÃ¡Â»â€ºi I-HAZE Ã„â€˜ÃƒÂ£ chia, truyÃ¡Â»Ân `I-HAZE/train` vÃƒÂ  `--val-data .../I-HAZE/val`.
 
 ```text
-<data>/hazy/<áº£nh sÆ°Æ¡ng>.png
-<data>/clear/<áº£nh rÃµ>.png
+<data>/hazy/<Ã¡ÂºÂ£nh sÃ†Â°Ã†Â¡ng>.png
+<data>/clear/<Ã¡ÂºÂ£nh rÃƒÂµ>.png
 ```
 
-Trainer há»— trá»£ tÃªn giá»‘ng nhau, háº­u tá»‘ `_hazy` vÃ  biáº¿n thá»ƒ tÃªn RESIDE.
-Train tá»« Ä‘áº§u khÃ´ng cáº§n checkpoint. Inference cháº¥t lÆ°á»£ng cáº§n mount checkpoint
-Ä‘Ã£ train vÃ  truyá»n `--checkpoint PATH`. Evaluate nháº­n checkpoint qua
+Trainer hÃ¡Â»â€” trÃ¡Â»Â£ tÃƒÂªn giÃ¡Â»â€˜ng nhau, hÃ¡ÂºÂ­u tÃ¡Â»â€˜ `_hazy` vÃƒÂ  biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ tÃƒÂªn RESIDE.
+Train tÃ¡Â»Â« Ã„â€˜Ã¡ÂºÂ§u khÃƒÂ´ng cÃ¡ÂºÂ§n checkpoint. Inference chÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng cÃ¡ÂºÂ§n mount checkpoint
+Ã„â€˜ÃƒÂ£ train vÃƒÂ  truyÃ¡Â»Ân `--checkpoint PATH`. Evaluate nhÃ¡ÂºÂ­n checkpoint qua
 `--checkpoint-i-haze`, `--checkpoint-o-hazy`, `--checkpoint-sots-its`,
-`--checkpoint-sots-ots`; má»™t file cÃ³ thá»ƒ dÃ¹ng cho nhiá»u bá»™ test.
+`--checkpoint-sots-ots`; mÃ¡Â»â„¢t file cÃƒÂ³ thÃ¡Â»Æ’ dÃƒÂ¹ng cho nhiÃ¡Â»Âu bÃ¡Â»â„¢ test.
 
-Äá»ƒ cÃ³ Ä‘á»§ 4 XLSX, cáº§n test trÃªn SOTS-Indoor, SOTS-Outdoor, I-HAZE vÃ  O-HAZY,
-khÃ´ng chá»‰ train ITS/OTS. I-HAZE/O-HAZY test Ä‘Ã£ cÃ³ trong repo; sparse clone
-bÆ°á»›c 1 chÆ°a checkout chÃºng. Láº¥y riÃªng hai bá»™ test trÃªn Vast.ai:
+Ã„ÂÃ¡Â»Æ’ cÃƒÂ³ Ã„â€˜Ã¡Â»Â§ 4 XLSX, cÃ¡ÂºÂ§n test trÃƒÂªn SOTS-Indoor, SOTS-Outdoor, I-HAZE vÃƒÂ  O-HAZY,
+khÃƒÂ´ng chÃ¡Â»â€° train ITS/OTS. I-HAZE/O-HAZY test Ã„â€˜ÃƒÂ£ cÃƒÂ³ trong repo; sparse clone
+bÃ†Â°Ã¡Â»â€ºc 1 chÃ†Â°a checkout chÃƒÂºng. LÃ¡ÂºÂ¥y riÃƒÂªng hai bÃ¡Â»â„¢ test trÃƒÂªn Vast.ai:
 
 ```bash
 cd /root/VDT_GD2
@@ -107,9 +107,9 @@ cp -a dataset/I-HAZE /root/clearair-data/
 cp -a dataset/O-HAZY /root/clearair-data/
 ```
 
-Äáº·t SOTS Ä‘Ã£ giáº£i nÃ©n vÃ o cáº¥u trÃºc dÆ°á»›i Ä‘Ã¢y. Náº¿u archive chá»‰ cÃ³
-`indoor/{clear,hazy}` vÃ  `outdoor/{clear,hazy}`, táº¡o symlink tÆ°Æ¡ng Ä‘á»‘i nhÆ°
-notebook. Thay `SOTS_SOURCE` báº±ng thÆ° má»¥c chá»©a trá»±c tiáº¿p `indoor/` vÃ  `outdoor/`:
+Ã„ÂÃ¡ÂºÂ·t SOTS Ã„â€˜ÃƒÂ£ giÃ¡ÂºÂ£i nÃƒÂ©n vÃƒÂ o cÃ¡ÂºÂ¥u trÃƒÂºc dÃ†Â°Ã¡Â»â€ºi Ã„â€˜ÃƒÂ¢y. NÃ¡ÂºÂ¿u archive chÃ¡Â»â€° cÃƒÂ³
+`indoor/{clear,hazy}` vÃƒÂ  `outdoor/{clear,hazy}`, tÃ¡ÂºÂ¡o symlink tÃ†Â°Ã†Â¡ng Ã„â€˜Ã¡Â»â€˜i nhÃ†Â°
+notebook. Thay `SOTS_SOURCE` bÃ¡ÂºÂ±ng thÃ†Â° mÃ¡Â»Â¥c chÃ¡Â»Â©a trÃ¡Â»Â±c tiÃ¡ÂºÂ¿p `indoor/` vÃƒÂ  `outdoor/`:
 
 ```bash
 SOTS_SOURCE=/root/clearair-data/SOTS-download
@@ -125,8 +125,8 @@ for domain in indoor outdoor; do
 done
 ```
 
-Symlink pháº£i trá» bÃªn trong `/root/clearair-data` Ä‘á»ƒ váº«n dÃ¹ng Ä‘Æ°á»£c khi mount.
-Cáº¥u trÃºc test cuá»‘i cÃ¹ng:
+Symlink phÃ¡ÂºÂ£i trÃ¡Â»Â bÃƒÂªn trong `/root/clearair-data` Ã„â€˜Ã¡Â»Æ’ vÃ¡ÂºÂ«n dÃƒÂ¹ng Ã„â€˜Ã†Â°Ã¡Â»Â£c khi mount.
+CÃ¡ÂºÂ¥u trÃƒÂºc test cuÃ¡Â»â€˜i cÃƒÂ¹ng:
 
 ```text
 /root/clearair-data/I-HAZE/test/{clear,hazy}/
@@ -135,16 +135,16 @@ Cáº¥u trÃºc test cuá»‘i cÃ¹ng:
 /root/clearair-data/Synthetic Objective Testing Set (SOTS) [RESIDE]/outdoor/test/{clear,hazy}/
 ```
 
-**Dataset Ä‘Ã£ táº£i khÃ´ng tá»± Ä‘i theo image khi push/pull.** MÃ¡y cháº¡y cuá»‘i cÃ¹ng
-pháº£i táº£i dataset hoáº·c nháº­n báº£n copy rá»“i mount nÃ³. Táº£i trÆ°á»›c build theo thá»© tá»±
-nÃ y lÃ  Ä‘á»ƒ chuáº©n bá»‹ dá»¯ liá»‡u, khÃ´ng pháº£i Ä‘á»ƒ COPY dá»¯ liá»‡u vÃ o image.
+**Dataset Ã„â€˜ÃƒÂ£ tÃ¡ÂºÂ£i khÃƒÂ´ng tÃ¡Â»Â± Ã„â€˜i theo image khi push/pull.** MÃƒÂ¡y chÃ¡ÂºÂ¡y cuÃ¡Â»â€˜i cÃƒÂ¹ng
+phÃ¡ÂºÂ£i tÃ¡ÂºÂ£i dataset hoÃ¡ÂºÂ·c nhÃ¡ÂºÂ­n bÃ¡ÂºÂ£n copy rÃ¡Â»â€œi mount nÃƒÂ³. TÃ¡ÂºÂ£i trÃ†Â°Ã¡Â»â€ºc build theo thÃ¡Â»Â© tÃ¡Â»Â±
+nÃƒÂ y lÃƒÂ  Ã„â€˜Ã¡Â»Æ’ chuÃ¡ÂºÂ©n bÃ¡Â»â€¹ dÃ¡Â»Â¯ liÃ¡Â»â€¡u, khÃƒÂ´ng phÃ¡ÂºÂ£i Ã„â€˜Ã¡Â»Æ’ COPY dÃ¡Â»Â¯ liÃ¡Â»â€¡u vÃƒÂ o image.
 
-### 3. Build image báº±ng buildctl
+### 3. Build image bÃ¡ÂºÂ±ng buildctl
 
-Cháº¡y tá»« root repo. Dockerfile náº±m trong thÆ° má»¥c con nÃªn pháº£i truyá»n `filename`
-tÆ°Æ¡ng Ä‘á»‘i vá»›i `--local dockerfile=.`; `.dockerignore` náº±m á»Ÿ root build context.
+ChÃ¡ÂºÂ¡y tÃ¡Â»Â« root repo. Dockerfile nÃ¡ÂºÂ±m trong thÃ†Â° mÃ¡Â»Â¥c con nÃƒÂªn phÃ¡ÂºÂ£i truyÃ¡Â»Ân `filename`
+tÃ†Â°Ã†Â¡ng Ã„â€˜Ã¡Â»â€˜i vÃ¡Â»â€ºi `--local dockerfile=.`; `.dockerignore` nÃ¡ÂºÂ±m Ã¡Â»Å¸ root build context.
 
-Xuáº¥t Docker archive, khÃ´ng cáº§n Docker daemon:
+XuÃ¡ÂºÂ¥t Docker archive, khÃƒÂ´ng cÃ¡ÂºÂ§n Docker daemon:
 
 ```bash
 cd /root/VDT_GD2
@@ -158,13 +158,13 @@ buildctl build \
   --progress=plain
 ```
 
-#### ÄÄƒng nháº­p Docker Hub cho standalone BuildKit
+#### Ã„ÂÃ„Æ’ng nhÃ¡ÂºÂ­p Docker Hub cho standalone BuildKit
 
-TrÆ°á»›c khi push, táº¡o access token Docker Hub cÃ³ quyá»n ghi repository vÃ  cháº¡y
-script Ä‘Äƒng nháº­p bÃªn dÆ°á»›i. ÄÃ¢y lÃ  auth cho BuildKit, khÃ´ng cáº§n Docker daemon.
-Token khÃ´ng Ä‘Æ°á»£c ghi vÃ o source, Dockerfile hay history cá»§a shell.
+TrÃ†Â°Ã¡Â»â€ºc khi push, tÃ¡ÂºÂ¡o access token Docker Hub cÃƒÂ³ quyÃ¡Â»Ân ghi repository vÃƒÂ  chÃ¡ÂºÂ¡y
+script Ã„â€˜Ã„Æ’ng nhÃ¡ÂºÂ­p bÃƒÂªn dÃ†Â°Ã¡Â»â€ºi. Ã„ÂÃƒÂ¢y lÃƒÂ  auth cho BuildKit, khÃƒÂ´ng cÃ¡ÂºÂ§n Docker daemon.
+Token khÃƒÂ´ng Ã„â€˜Ã†Â°Ã¡Â»Â£c ghi vÃƒÂ o source, Dockerfile hay history cÃ¡Â»Â§a shell.
 
-Hoáº·c push trá»±c tiáº¿p lÃªn Docker Hub sau khi Ä‘Äƒng nháº­p (thay username):
+HoÃ¡ÂºÂ·c push trÃ¡Â»Â±c tiÃ¡ÂºÂ¿p lÃƒÂªn Docker Hub sau khi Ã„â€˜Ã„Æ’ng nhÃ¡ÂºÂ­p (thay username):
 
 ```bash
 buildctl build \
@@ -177,9 +177,9 @@ buildctl build \
   --progress=plain
 ```
 
-BuildKit dÃ¹ng registry credential trong `$DOCKER_CONFIG/config.json`, máº·c Ä‘á»‹nh
-`~/.docker/config.json`. KhÃ´ng cáº§n cháº¡y `docker login`; táº¡o auth báº±ng prompt
-Ä‘á»ƒ token khÃ´ng vÃ o command history:
+BuildKit dÃƒÂ¹ng registry credential trong `$DOCKER_CONFIG/config.json`, mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh
+`~/.docker/config.json`. KhÃƒÂ´ng cÃ¡ÂºÂ§n chÃ¡ÂºÂ¡y `docker login`; tÃ¡ÂºÂ¡o auth bÃ¡ÂºÂ±ng prompt
+Ã„â€˜Ã¡Â»Æ’ token khÃƒÂ´ng vÃƒÂ o command history:
 
 ```bash
 python3 - <<'PY'
@@ -206,32 +206,32 @@ config_path.chmod(0o600)
 PY
 ```
 
-Script Ä‘á»c tá»« `/dev/tty` vÃ¬ stdin Ä‘ang chá»©a Python heredoc. TrÃªn mÃ¡y cÃ³ Docker
-CLI cÃ³ thá»ƒ dÃ¹ng `docker login --username YOUR_DOCKERHUB_USERNAME`, nhÆ°ng
-khÃ´ng cáº§n lá»‡nh Ä‘Ã³ trÃªn Vast.ai. Docker CLI login cÅ©ng khÃ´ng cáº§n daemon.
+Script Ã„â€˜Ã¡Â»Âc tÃ¡Â»Â« `/dev/tty` vÃƒÂ¬ stdin Ã„â€˜ang chÃ¡Â»Â©a Python heredoc. TrÃƒÂªn mÃƒÂ¡y cÃƒÂ³ Docker
+CLI cÃƒÂ³ thÃ¡Â»Æ’ dÃƒÂ¹ng `docker login --username YOUR_DOCKERHUB_USERNAME`, nhÃ†Â°ng
+khÃƒÂ´ng cÃ¡ÂºÂ§n lÃ¡Â»â€¡nh Ã„â€˜ÃƒÂ³ trÃƒÂªn Vast.ai. Docker CLI login cÃ…Â©ng khÃƒÂ´ng cÃ¡ÂºÂ§n daemon.
 
-Auth lÃ  base64, khÃ´ng pháº£i mÃ£ hÃ³a; giá»¯ file ngoÃ i repo vÃ  khÃ´ng chia sáº».
-Náº¿u cáº¥u hÃ¬nh cÃ³ credential helper, helper Ä‘Ã³ pháº£i cÃ³ trÃªn host. Náº¿u NGC yÃªu
-cáº§u Ä‘Äƒng nháº­p, thÃªm auth cho `nvcr.io` vá»›i username `$oauthtoken` vÃ  NGC API
-key vÃ o cÃ¹ng cáº¥u hÃ¬nh. KhÃ´ng hard-code credential trong Dockerfile/build arg.
-KhÃ´ng cáº§n SSH forwarding, private package credential hoáº·c build secret.
+Auth lÃƒÂ  base64, khÃƒÂ´ng phÃ¡ÂºÂ£i mÃƒÂ£ hÃƒÂ³a; giÃ¡Â»Â¯ file ngoÃƒÂ i repo vÃƒÂ  khÃƒÂ´ng chia sÃ¡ÂºÂ».
+NÃ¡ÂºÂ¿u cÃ¡ÂºÂ¥u hÃƒÂ¬nh cÃƒÂ³ credential helper, helper Ã„â€˜ÃƒÂ³ phÃ¡ÂºÂ£i cÃƒÂ³ trÃƒÂªn host. NÃ¡ÂºÂ¿u NGC yÃƒÂªu
+cÃ¡ÂºÂ§u Ã„â€˜Ã„Æ’ng nhÃ¡ÂºÂ­p, thÃƒÂªm auth cho `nvcr.io` vÃ¡Â»â€ºi username `$oauthtoken` vÃƒÂ  NGC API
+key vÃƒÂ o cÃƒÂ¹ng cÃ¡ÂºÂ¥u hÃƒÂ¬nh. KhÃƒÂ´ng hard-code credential trong Dockerfile/build arg.
+KhÃƒÂ´ng cÃ¡ÂºÂ§n SSH forwarding, private package credential hoÃ¡ÂºÂ·c build secret.
 
-Äá»ƒ thay base Ä‘Ã£ Ä‘Æ°á»£c kiá»ƒm tra vá»›i driver, thÃªm option sau vÃ o lá»‡nh build:
+Ã„ÂÃ¡Â»Æ’ thay base Ã„â€˜ÃƒÂ£ Ã„â€˜Ã†Â°Ã¡Â»Â£c kiÃ¡Â»Æ’m tra vÃ¡Â»â€ºi driver, thÃƒÂªm option sau vÃƒÂ o lÃ¡Â»â€¡nh build:
 
 ```bash
 --opt build-arg:BASE_IMAGE=nvcr.io/nvidia/pytorch:TAG_DA_KIEM_TRA
 ```
 
-NGC image lá»›n; cáº§n disk cho base, native snapshots vÃ  tar Ä‘áº§u ra. Dependency
-Ä‘Æ°á»£c cache theo layer; native snapshotter cÃ³ thá»ƒ tá»‘n disk vÃ  thá»i gian hÆ¡n.
-Äá»ƒ tÃ¡i láº­p cháº·t cháº½ hÆ¡n, pin base báº±ng digest vÃ  khÃ³a dependency sau khi build
-thÃ nh cÃ´ng; requirements hiá»‡n dÃ¹ng khoáº£ng phiÃªn báº£n, khÃ´ng pháº£i lockfile.
+NGC image lÃ¡Â»â€ºn; cÃ¡ÂºÂ§n disk cho base, native snapshots vÃƒÂ  tar Ã„â€˜Ã¡ÂºÂ§u ra. Dependency
+Ã„â€˜Ã†Â°Ã¡Â»Â£c cache theo layer; native snapshotter cÃƒÂ³ thÃ¡Â»Æ’ tÃ¡Â»â€˜n disk vÃƒÂ  thÃ¡Â»Âi gian hÃ†Â¡n.
+Ã„ÂÃ¡Â»Æ’ tÃƒÂ¡i lÃ¡ÂºÂ­p chÃ¡ÂºÂ·t chÃ¡ÂºÂ½ hÃ†Â¡n, pin base bÃ¡ÂºÂ±ng digest vÃƒÂ  khÃƒÂ³a dependency sau khi build
+thÃƒÂ nh cÃƒÂ´ng; requirements hiÃ¡Â»â€¡n dÃƒÂ¹ng khoÃ¡ÂºÂ£ng phiÃƒÂªn bÃ¡ÂºÂ£n, khÃƒÂ´ng phÃ¡ÂºÂ£i lockfile.
 
-### 4. Load vÃ  cháº¡y trÃªn mÃ¡y cÃ³ Docker/GPU
+### 4. Load vÃƒÂ  chÃ¡ÂºÂ¡y trÃƒÂªn mÃƒÂ¡y cÃƒÂ³ Docker/GPU
 
-ÄÃ¢y lÃ  bÆ°á»›c bÃªn váº­n hÃ nh lÃ m trÃªn mÃ¡y cháº¡y cuá»‘i cÃ¹ng, khÃ´ng pháº£i yÃªu cáº§u
-Docker daemon trÃªn Vast.ai build host. Host cáº§n NVIDIA driver tÆ°Æ¡ng thÃ­ch vÃ 
-GPU container runtime Ä‘Ã£ cáº¥u hÃ¬nh. KhÃ´ng cÃ i driver NVIDIA vÃ o image.
+Ã„ÂÃƒÂ¢y lÃƒÂ  bÃ†Â°Ã¡Â»â€ºc bÃƒÂªn vÃ¡ÂºÂ­n hÃƒÂ nh lÃƒÂ m trÃƒÂªn mÃƒÂ¡y chÃ¡ÂºÂ¡y cuÃ¡Â»â€˜i cÃƒÂ¹ng, khÃƒÂ´ng phÃ¡ÂºÂ£i yÃƒÂªu cÃ¡ÂºÂ§u
+Docker daemon trÃƒÂªn Vast.ai build host. Host cÃ¡ÂºÂ§n NVIDIA driver tÃ†Â°Ã†Â¡ng thÃƒÂ­ch vÃƒÂ 
+GPU container runtime Ã„â€˜ÃƒÂ£ cÃ¡ÂºÂ¥u hÃƒÂ¬nh. KhÃƒÂ´ng cÃƒÂ i driver NVIDIA vÃƒÂ o image.
 
 ```bash
 docker load -i /path/to/clearair-wavelet.tar
@@ -239,22 +239,22 @@ docker run --rm --gpus all clearair-wavelet:latest \
   python -c 'import torch; print(torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
 ```
 
-Náº¿u push Docker Hub, thay load báº±ng pull vÃ  dÃ¹ng tÃªn image Ä‘áº§y Ä‘á»§:
+NÃ¡ÂºÂ¿u push Docker Hub, thay load bÃ¡ÂºÂ±ng pull vÃƒÂ  dÃƒÂ¹ng tÃƒÂªn image Ã„â€˜Ã¡ÂºÂ§y Ã„â€˜Ã¡Â»Â§:
 
 ```bash
 docker pull docker.io/YOUR_DOCKERHUB_USERNAME/clearair-wavelet:latest
 ```
 
-#### Train cáº£ ITS vÃ  OTS, táº¡o 2 checkpoint + 6 biá»ƒu Ä‘á»“ + 4 XLSX
+#### Train cÃ¡ÂºÂ£ ITS vÃƒÂ  OTS, tÃ¡ÂºÂ¡o 2 checkpoint + 6 biÃ¡Â»Æ’u Ã„â€˜Ã¡Â»â€œ + 4 XLSX
 
-Runner `solution.wavelet_dehaze.run_its_ots` train tuáº§n tá»± ITS rá»“i OTS,
-khÃ´ng train hai job cÃ¹ng lÃºc trÃªn má»™t GPU. Thiáº¿t láº­p theo notebook: tá»‘i Ä‘a
-1000 epochs, batch 16, cosine, ITS lr=2e-4, OTS lr=1e-4, augmentation vÃ 
-multi-scale. Bá»• sung validation 10% theo nhÃ³m clear image, AMP vÃ  micro-batch
-4; early stopping cÃ³ thá»ƒ káº¿t thÃºc trÆ°á»›c 1000 epochs. CÃ³ thá»ƒ Ä‘á»•i qua CLI.
-Runner tá»± tÃ¬m thÆ° má»¥c ghÃ©p cáº·p duy nháº¥t náº¿u archive lá»“ng má»™t cáº¥p; náº¿u cÃ³ nhiá»u
-thÆ° má»¥c `hazy/clear`, pháº£i truyá»n Ä‘Æ°á»ng dáº«n chÃ­nh xÃ¡c. NÃ³ kiá»ƒm tra cáº£ bá»‘n bá»™
-test trÆ°á»›c khi train Ä‘á»ƒ trÃ¡nh cháº¡y dÃ i rá»“i má»›i phÃ¡t hiá»‡n thiáº¿u dá»¯ liá»‡u.
+Runner `solution.wavelet_dehaze.run_its_ots` train tuÃ¡ÂºÂ§n tÃ¡Â»Â± ITS rÃ¡Â»â€œi OTS,
+khÃƒÂ´ng train hai job cÃƒÂ¹ng lÃƒÂºc trÃƒÂªn mÃ¡Â»â„¢t GPU. ThiÃ¡ÂºÂ¿t lÃ¡ÂºÂ­p theo notebook: tÃ¡Â»â€˜i Ã„â€˜a
+1000 epochs, batch 16, cosine, ITS lr=2e-4, OTS lr=1e-4, augmentation vÃƒÂ 
+multi-scale. BÃ¡Â»â€¢ sung validation 10% theo nhÃƒÂ³m clear image, AMP vÃƒÂ  micro-batch
+4; early stopping cÃƒÂ³ thÃ¡Â»Æ’ kÃ¡ÂºÂ¿t thÃƒÂºc trÃ†Â°Ã¡Â»â€ºc 1000 epochs. CÃƒÂ³ thÃ¡Â»Æ’ Ã„â€˜Ã¡Â»â€¢i qua CLI.
+Runner tÃ¡Â»Â± tÃƒÂ¬m thÃ†Â° mÃ¡Â»Â¥c ghÃƒÂ©p cÃ¡ÂºÂ·p duy nhÃ¡ÂºÂ¥t nÃ¡ÂºÂ¿u archive lÃ¡Â»â€œng mÃ¡Â»â„¢t cÃ¡ÂºÂ¥p; nÃ¡ÂºÂ¿u cÃƒÂ³ nhiÃ¡Â»Âu
+thÃ†Â° mÃ¡Â»Â¥c `hazy/clear`, phÃ¡ÂºÂ£i truyÃ¡Â»Ân Ã„â€˜Ã†Â°Ã¡Â»Âng dÃ¡ÂºÂ«n chÃƒÂ­nh xÃƒÂ¡c. NÃƒÂ³ kiÃ¡Â»Æ’m tra cÃ¡ÂºÂ£ bÃ¡Â»â€˜n bÃ¡Â»â„¢
+test trÃ†Â°Ã¡Â»â€ºc khi train Ã„â€˜Ã¡Â»Æ’ trÃƒÂ¡nh chÃ¡ÂºÂ¡y dÃƒÂ i rÃ¡Â»â€œi mÃ¡Â»â€ºi phÃƒÂ¡t hiÃ¡Â»â€¡n thiÃ¡ÂºÂ¿u dÃ¡Â»Â¯ liÃ¡Â»â€¡u.
 
 ```bash
 mkdir -p /root/clearair-output
@@ -272,11 +272,11 @@ docker run --rm --gpus all --shm-size=8g \
   --pin-memory --persistent-workers --amp
 ```
 
-CÃ³ thá»ƒ cháº¡y trá»±c tiáº¿p command Python trÃªn Vast.ai hiá»‡n táº¡i náº¿u mÃ´i trÆ°á»ng
-Ä‘Ã£ cÃ i Ä‘á»§ torch/CUDA vÃ  `requirements-container.txt`, khÃ´ng cáº§n cháº¡y container
-lá»“ng nhau. DÃ¹ng Ä‘Æ°á»ng dáº«n host thay cho `/workspace/ClearAIR/dataset`.
+CÃƒÂ³ thÃ¡Â»Æ’ chÃ¡ÂºÂ¡y trÃ¡Â»Â±c tiÃ¡ÂºÂ¿p command Python trÃƒÂªn Vast.ai hiÃ¡Â»â€¡n tÃ¡ÂºÂ¡i nÃ¡ÂºÂ¿u mÃƒÂ´i trÃ†Â°Ã¡Â»Âng
+Ã„â€˜ÃƒÂ£ cÃƒÂ i Ã„â€˜Ã¡Â»Â§ torch/CUDA vÃƒÂ  `requirements-container.txt`, khÃƒÂ´ng cÃ¡ÂºÂ§n chÃ¡ÂºÂ¡y container
+lÃ¡Â»â€œng nhau. DÃƒÂ¹ng Ã„â€˜Ã†Â°Ã¡Â»Âng dÃ¡ÂºÂ«n host thay cho `/workspace/ClearAIR/dataset`.
 
-Káº¿t quáº£ trong `/root/clearair-output/hazewavenet/`:
+KÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ trong `/root/clearair-output/hazewavenet/`:
 
 ```text
 haze_wavelet_its.pt
@@ -292,38 +292,38 @@ reports/hardware.xlsx
 reports/performance.json
 ```
 
-Má»—i PNG cÃ³ Ä‘Æ°á»ng train/validation. PSNR/SSIM history lÃ  metric cá»§a trainer;
-SSIM history lÃ  global SSIM, khÃ´ng giá»‘ng sliding-window SSIM á»Ÿ evaluation.
-XLSX lÃ  káº¿t quáº£ inference trÃªn test, khÃ´ng pháº£i metric history train.
-Checkpoint ITS dÃ¹ng cho SOTS-Indoor vÃ  I-HAZE; checkpoint OTS dÃ¹ng cho
-SOTS-Outdoor vÃ  O-HAZY. ÄÃ¢y lÃ  Ä‘Ã¡nh giÃ¡ kháº£ nÄƒng tá»•ng quÃ¡t hÃ³a, **khÃ´ng pháº£i**
-pipeline notebook gá»‘c train/fine-tune thÃªm hai model trÃªn I-HAZE/O-HAZY.
-CÃ¡c nhÃ³m khÃ´ng cÃ³ áº£nh (vÃ­ dá»¥ má»©c sÆ°Æ¡ng nÃ o Ä‘Ã³) sáº½ Ä‘á»ƒ trá»‘ng trong Excel.
-`hardware.xlsx` nay là workbook chi ti?t, g?m các sheet `PerImage`,
-`DatasetSummary`, `ModelComplexity` và `Hardware`; có GMACs/GFLOPs, kích
-thu?c model và stage timing cho t?ng ?nh.
+MÃ¡Â»â€”i PNG cÃƒÂ³ Ã„â€˜Ã†Â°Ã¡Â»Âng train/validation. PSNR/SSIM history lÃƒÂ  metric cÃ¡Â»Â§a trainer;
+SSIM history lÃƒÂ  global SSIM, khÃƒÂ´ng giÃ¡Â»â€˜ng sliding-window SSIM Ã¡Â»Å¸ evaluation.
+XLSX lÃƒÂ  kÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ inference trÃƒÂªn test, khÃƒÂ´ng phÃ¡ÂºÂ£i metric history train.
+Checkpoint ITS dÃƒÂ¹ng cho SOTS-Indoor vÃƒÂ  I-HAZE; checkpoint OTS dÃƒÂ¹ng cho
+SOTS-Outdoor vÃƒÂ  O-HAZY. Ã„ÂÃƒÂ¢y lÃƒÂ  Ã„â€˜ÃƒÂ¡nh giÃƒÂ¡ khÃ¡ÂºÂ£ nÃ„Æ’ng tÃ¡Â»â€¢ng quÃƒÂ¡t hÃƒÂ³a, **khÃƒÂ´ng phÃ¡ÂºÂ£i**
+pipeline notebook gÃ¡Â»â€˜c train/fine-tune thÃƒÂªm hai model trÃƒÂªn I-HAZE/O-HAZY.
+CÃƒÂ¡c nhÃƒÂ³m khÃƒÂ´ng cÃƒÂ³ Ã¡ÂºÂ£nh (vÃƒÂ­ dÃ¡Â»Â¥ mÃ¡Â»Â©c sÃ†Â°Ã†Â¡ng nÃƒÂ o Ã„â€˜ÃƒÂ³) sÃ¡ÂºÂ½ Ã„â€˜Ã¡Â»Æ’ trÃ¡Â»â€˜ng trong Excel.
+`hardware.xlsx` nay lÃ  workbook chi ti?t, g?m cÃ¡c sheet `PerImage`,
+`DatasetSummary`, `ModelComplexity` vÃ  `Hardware`; cÃ³ GMACs/GFLOPs, kÃ­ch
+thu?c model vÃ  stage timing cho t?ng ?nh.
 
-Äiá»u chá»‰nh Ä‘Æ°á»ng dáº«n theo káº¿t quáº£ `find` bÆ°á»›c 2. Batch/workers/shm lÃ  cáº¥u hÃ¬nh
-khá»Ÿi Ä‘áº§u, khÃ´ng pháº£i thÃ´ng sá»‘ benchmark H100 Ä‘Ã£ xÃ¡c minh. KhÃ´ng cáº§n `-p`,
-environment secret, `--privileged` hoáº·c `--ipc=host`. Chá»‰ báº­t `--multi-gpu`
-khi cÃ³ Ã­t nháº¥t hai GPU; code hiá»‡n dÃ¹ng DataParallel, khÃ´ng pháº£i DDP.
-Output pháº£i mount writable Ä‘á»ƒ giá»¯ checkpoint sau khi container bá»‹ xÃ³a.
-Trainer chá»‰ lÆ°u weights/epoch, khÃ´ng cÃ³ tÃ¹y chá»n resume optimizer/scheduler.
+Ã„ÂiÃ¡Â»Âu chÃ¡Â»â€°nh Ã„â€˜Ã†Â°Ã¡Â»Âng dÃ¡ÂºÂ«n theo kÃ¡ÂºÂ¿t quÃ¡ÂºÂ£ `find` bÃ†Â°Ã¡Â»â€ºc 2. Batch/workers/shm lÃƒÂ  cÃ¡ÂºÂ¥u hÃƒÂ¬nh
+khÃ¡Â»Å¸i Ã„â€˜Ã¡ÂºÂ§u, khÃƒÂ´ng phÃ¡ÂºÂ£i thÃƒÂ´ng sÃ¡Â»â€˜ benchmark H100 Ã„â€˜ÃƒÂ£ xÃƒÂ¡c minh. KhÃƒÂ´ng cÃ¡ÂºÂ§n `-p`,
+environment secret, `--privileged` hoÃ¡ÂºÂ·c `--ipc=host`. ChÃ¡Â»â€° bÃ¡ÂºÂ­t `--multi-gpu`
+khi cÃƒÂ³ ÃƒÂ­t nhÃ¡ÂºÂ¥t hai GPU; code hiÃ¡Â»â€¡n dÃƒÂ¹ng DataParallel, khÃƒÂ´ng phÃ¡ÂºÂ£i DDP.
+Output phÃ¡ÂºÂ£i mount writable Ã„â€˜Ã¡Â»Æ’ giÃ¡Â»Â¯ checkpoint sau khi container bÃ¡Â»â€¹ xÃƒÂ³a.
+Trainer chÃ¡Â»â€° lÃ†Â°u weights/epoch, khÃƒÂ´ng cÃƒÂ³ tÃƒÂ¹y chÃ¡Â»Ân resume optimizer/scheduler.
 
-### Giá»›i háº¡n xÃ¡c minh
+### GiÃ¡Â»â€ºi hÃ¡ÂºÂ¡n xÃƒÂ¡c minh
 
-Chá»‰ static checks táº¡i workspace: source Python, COPY paths, dependency/CLI
-flags, diff vÃ  shell syntax. KhÃ´ng cháº¡y `docker build`, build/push image hay
-train GPU táº¡i Ä‘Ã¢y. Cáº§n xÃ¡c minh á»Ÿ Vast.ai: quyá»n pull/tag NGC, pip resolver,
-quyá»n namespace BuildKit trong container thuÃª, Internet/disk, quyá»n Kaggle,
-cáº¥u trÃºc archive, driver GPU vÃ  quyá»n ghi mount táº¡i mÃ¡y cháº¡y cuá»‘i cÃ¹ng.
+ChÃ¡Â»â€° static checks tÃ¡ÂºÂ¡i workspace: source Python, COPY paths, dependency/CLI
+flags, diff vÃƒÂ  shell syntax. KhÃƒÂ´ng chÃ¡ÂºÂ¡y `docker build`, build/push image hay
+train GPU tÃ¡ÂºÂ¡i Ã„â€˜ÃƒÂ¢y. CÃ¡ÂºÂ§n xÃƒÂ¡c minh Ã¡Â»Å¸ Vast.ai: quyÃ¡Â»Ân pull/tag NGC, pip resolver,
+quyÃ¡Â»Ân namespace BuildKit trong container thuÃƒÂª, Internet/disk, quyÃ¡Â»Ân Kaggle,
+cÃ¡ÂºÂ¥u trÃƒÂºc archive, driver GPU vÃƒÂ  quyÃ¡Â»Ân ghi mount tÃ¡ÂºÂ¡i mÃƒÂ¡y chÃ¡ÂºÂ¡y cuÃ¡Â»â€˜i cÃƒÂ¹ng.
 
-## Cháº¡y trÃªn Google Colab
+## ChÃ¡ÂºÂ¡y trÃƒÂªn Google Colab
 
-### 1. Báº­t GPU vÃ  clone repository
+### 1. BÃ¡ÂºÂ­t GPU vÃƒÂ  clone repository
 
-Trong Colab chá»n `Runtime` -> `Change runtime type` -> `T4 GPU` hoáº·c GPU máº¡nh hÆ¡n,
-sau Ä‘Ã³ cháº¡y:
+Trong Colab chÃ¡Â»Ân `Runtime` -> `Change runtime type` -> `T4 GPU` hoÃ¡ÂºÂ·c GPU mÃ¡ÂºÂ¡nh hÃ†Â¡n,
+sau Ã„â€˜ÃƒÂ³ chÃ¡ÂºÂ¡y:
 
 ```python
 %cd /content
@@ -331,14 +331,14 @@ sau Ä‘Ã³ cháº¡y:
 %cd /content/VDT_GD2
 ```
 
-### 2. CÃ i dependency
+### 2. CÃƒÂ i dependency
 
 ```python
 !pip install -q torch torchvision opencv-python tqdm numpy pillow scipy \
     scikit-image psutil openpyxl
 ```
 
-Kiá»ƒm tra GPU:
+KiÃ¡Â»Æ’m tra GPU:
 
 ```python
 import torch
@@ -349,20 +349,20 @@ if torch.cuda.is_available():
     print(torch.cuda.get_device_name(0))
 ```
 
-### 3. Kiá»ƒm tra dataset
+### 3. KiÃ¡Â»Æ’m tra dataset
 
-Äáº·t dataset táº¡i `/content/VDT_GD2/dataset` theo cáº¥u trÃºc:
+Ã„ÂÃ¡ÂºÂ·t dataset tÃ¡ÂºÂ¡i `/content/VDT_GD2/dataset` theo cÃ¡ÂºÂ¥u trÃƒÂºc:
 
 ```text
 dataset/
-â”œâ”€â”€ I-HAZE/test/{clear,hazy}/
-â”œâ”€â”€ O-HAZY/test/{clear,hazy}/
-â””â”€â”€ Synthetic Objective Testing Set (SOTS) [RESIDE]/
-    â”œâ”€â”€ indoor/test/{clear,hazy}/
-    â””â”€â”€ outdoor/test/{clear,hazy}/
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ I-HAZE/test/{clear,hazy}/
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ O-HAZY/test/{clear,hazy}/
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ Synthetic Objective Testing Set (SOTS) [RESIDE]/
+    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ indoor/test/{clear,hazy}/
+    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ outdoor/test/{clear,hazy}/
 ```
 
-Náº¿u dataset á»Ÿ Google Drive:
+NÃ¡ÂºÂ¿u dataset Ã¡Â»Å¸ Google Drive:
 
 ```python
 from google.colab import drive
@@ -370,12 +370,12 @@ drive.mount("/content/drive")
 !cp -r "/content/drive/MyDrive/dataset" /content/VDT_GD2/
 ```
 
-### 4. ÄÃ¡nh giÃ¡ GridDehazeNet
+### 4. Ã„ÂÃƒÂ¡nh giÃƒÂ¡ GridDehazeNet
 
-Script tá»± chá»n checkpoint Ä‘Ãºng cho tá»«ng nhÃ³m:
+Script tÃ¡Â»Â± chÃ¡Â»Ân checkpoint Ã„â€˜ÃƒÂºng cho tÃ¡Â»Â«ng nhÃƒÂ³m:
 
-- SOTS-Indoor vÃ  I-HAZE: `indoor_haze_best_3_6`.
-- SOTS-Outdoor vÃ  O-HAZE: `outdoor_haze_best_3_6`.
+- SOTS-Indoor vÃƒÂ  I-HAZE: `indoor_haze_best_3_6`.
+- SOTS-Outdoor vÃƒÂ  O-HAZE: `outdoor_haze_best_3_6`.
 
 ```python
 %cd /content/VDT_GD2
@@ -384,7 +384,7 @@ Script tá»± chá»n checkpoint Ä‘Ãºng cho tá»«ng nhÃ³m:
     --output-dir utils/evaluation_results/griddehazenet
 ```
 
-Cháº¡y thá»­ má»™t áº£nh má»—i dataset trÆ°á»›c:
+ChÃ¡ÂºÂ¡y thÃ¡Â»Â­ mÃ¡Â»â„¢t Ã¡ÂºÂ£nh mÃ¡Â»â€”i dataset trÃ†Â°Ã¡Â»â€ºc:
 
 ```python
 !python utils/evaluate_griddehazenet.py \
@@ -393,7 +393,7 @@ Cháº¡y thá»­ má»™t áº£nh má»—i dataset trÆ°á»›c:
     --output-dir utils/evaluation_results/griddehazenet_smoke
 ```
 
-### 5. ÄÃ¡nh giÃ¡ DCP vÃ  CAP
+### 5. Ã„ÂÃƒÂ¡nh giÃƒÂ¡ DCP vÃƒÂ  CAP
 
 ```python
 !python utils/evaluate.py \
@@ -409,37 +409,37 @@ Cháº¡y thá»­ má»™t áº£nh má»—i dataset trÆ°á»›c:
     --output-dir utils/evaluation_results/cap
 ```
 
-### 6. File káº¿t quáº£
+### 6. File kÃ¡ÂºÂ¿t quÃ¡ÂºÂ£
 
-Má»—i solution sinh ba file Excel:
+MÃ¡Â»â€”i solution sinh ba file Excel:
 
 ```text
 <solution>_dataset.xlsx  # SOTS-Indoor, SOTS-Outdoor, O-HAZE, I-HAZE
-<solution>_domain.xlsx   # Real vÃ  Synthetic
-<solution>_fog.xlsx      # Light, Medium vÃ  Heavy fog
+<solution>_domain.xlsx   # Real vÃƒÂ  Synthetic
+<solution>_fog.xlsx      # Light, Medium vÃƒÂ  Heavy fog
 ```
 
-Vá»›i GridDehazeNet, file tá»•ng há»£p náº±m táº¡i:
+VÃ¡Â»â€ºi GridDehazeNet, file tÃ¡Â»â€¢ng hÃ¡Â»Â£p nÃ¡ÂºÂ±m tÃ¡ÂºÂ¡i:
 
 ```text
 utils/evaluation_results/griddehazenet/
-â”œâ”€â”€ griddehazenet_dataset.xlsx
-â”œâ”€â”€ griddehazenet_domain.xlsx
-â”œâ”€â”€ griddehazenet_fog.xlsx
-â”œâ”€â”€ summary_test.csv
-â””â”€â”€ performance_test.json
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ griddehazenet_dataset.xlsx
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ griddehazenet_domain.xlsx
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ griddehazenet_fog.xlsx
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ summary_test.csv
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ performance_test.json
 ```
 
-DCP vÃ  CAP lÆ°u workbook trong thÆ° má»¥c run tÆ°Æ¡ng á»©ng:
+DCP vÃƒÂ  CAP lÃ†Â°u workbook trong thÃ†Â° mÃ¡Â»Â¥c run tÃ†Â°Ã†Â¡ng Ã¡Â»Â©ng:
 
 ```text
 utils/evaluation_results/dcp/dcp/test/
 utils/evaluation_results/cap/cap/test/
 ```
 
-`performance_test.json` ghi hardware, CPU/RAM, GPU/VRAM náº¿u cÃ³, thá»i gian cháº¡y
-vÃ  FPS. Trong bÃ¡o cÃ¡o nÃªn phÃ¢n biá»‡t `FPS toÃ n bá»™ run` (bao gá»“m Ä‘á»c áº£nh, resize,
-tÃ­nh metric vÃ  ghi file) vá»›i `FPS suy luáº­n trung bÃ¬nh` (chá»‰ thá»i gian model).
+`performance_test.json` ghi hardware, CPU/RAM, GPU/VRAM nÃ¡ÂºÂ¿u cÃƒÂ³, thÃ¡Â»Âi gian chÃ¡ÂºÂ¡y
+vÃƒÂ  FPS. Trong bÃƒÂ¡o cÃƒÂ¡o nÃƒÂªn phÃƒÂ¢n biÃ¡Â»â€¡t `FPS toÃƒÂ n bÃ¡Â»â„¢ run` (bao gÃ¡Â»â€œm Ã„â€˜Ã¡Â»Âc Ã¡ÂºÂ£nh, resize,
+tÃƒÂ­nh metric vÃƒÂ  ghi file) vÃ¡Â»â€ºi `FPS suy luÃ¡ÂºÂ­n trung bÃƒÂ¬nh` (chÃ¡Â»â€° thÃ¡Â»Âi gian model).
 ## Download Kaggle datasets with visible progress
 
 The sequential downloader in `scripts/download_kaggle_datasets.sh` uses
@@ -593,3 +593,5 @@ contains preprocess time, DCP prior, DWT decomposition, low-frequency branch,
 high-frequency branch, WIM reconstruction, final refinement, total inference,
 PSNR and SSIM for every evaluated image, plus parameter count, MACs/FLOPs and
 input sizes 256/1024.
+
+Ngoài workbook, evaluation in timing trung bình riêng cho từng dataset vào `timing_i_haze.json`, `timing_o_hazy.json`, `timing_sots_its.json` và `timing_sots_ots.json`; terminal cũng in toàn bộ stage timing theo từng dataset.
