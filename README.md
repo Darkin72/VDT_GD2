@@ -484,3 +484,31 @@ The file must contain `username` and `key`. Do not commit it or copy it into
 the Docker build context. Before a BuildKit push, create Docker Hub auth in
 `~/.docker/config.json` using the prompt-based login script in the BuildKit
 section above. BuildKit reads that file directly; Docker daemon is not needed.
+
+## Full-image smoke training
+
+After pulling `darkin72/dehazewavelet:latest`, run the smoke script below on a
+GPU host. It creates tiny train/evaluation subsets inside the output volume,
+runs one epoch for ITS and OTS, and verifies two checkpoints, two histories,
+six plots, four XLSX reports and one inference PNG. It does not train on the
+full dataset and its metrics are only an execution check.
+
+```bash
+chmod +x scripts/smoke_train.sh
+bash scripts/smoke_train.sh
+```
+
+Optional paths/image:
+
+```bash
+IMAGE=darkin72/dehazewavelet:latest \
+DATA_ROOT=/root/clearair-data \
+OUTPUT_ROOT=/root/clearair-output \
+bash scripts/smoke_train.sh
+```
+
+Expected results are under:
+
+```text
+/root/clearair-output/smoke-train/results/
+```
