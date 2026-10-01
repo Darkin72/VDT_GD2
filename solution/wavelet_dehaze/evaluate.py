@@ -49,17 +49,24 @@ def run_model(model, pair_list, device, max_side):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--data-root", type=Path, required=True); ap.add_argument("--output-dir", type=Path, required=True)
-    for name in ("i-haze", "o-hazy", "sots-its", "sots-ots"): ap.add_argument(f"--checkpoint-{name}", type=Path, required=True)
+    for name in ("i-haze", "o-hazy", "sots-its", "sots-ots"): ap.add_argument(f"--checkpoint-{name}", type=Path, default=None)
     ap.add_argument("--device", choices=("cpu", "cuda"), default="cuda"); ap.add_argument("--max-side", type=int, default=1024); args = ap.parse_args()
     if args.device == "cuda" and not torch.cuda.is_available(): raise RuntimeError("CUDA is not available")
     names = {"i-haze": "I-HAZE", "o-hazy": "O-HAZY", "sots-indoor": "Synthetic Objective Testing Set (SOTS) [RESIDE]", "sots-outdoor": "Synthetic Objective Testing Set (SOTS) [RESIDE]"}
     checkpoints = {key: getattr(args, "checkpoint_" + key.replace("-", "_")) for key in ("i-haze", "o-hazy", "sots-its", "sots-ots")}
+    if not any(checkpoints.values()):
+        raise ValueError("At least one checkpoint argument is required")
     datasets = {"i-haze": "i-haze", "o-hazy": "o-hazy", "sots-its": "sots-indoor", "sots-ots": "sots-outdoor"}
     all_rows, total_time, total_images = [], 0.0, 0
     for label, dataset in datasets.items():
+        if checkpoints[label] is None:
+            continue
         model = HazeWaveNet().to(args.device).eval(); state = torch.load(checkpoints[label], map_location=args.device); model.load_state_dict(state.get("model", state))
         root = args.data_root / ("I-HAZE" if dataset == "i-haze" else "O-HAZY" if dataset == "o-hazy" else names[dataset])
-        pair_list = pairs(root, dataset); metrics, inference_time = run_model(model, pair_list, args.device, args.max_side)
+        pair_list = pairs(root, dataset)
+        if not pair_list:
+            raise ValueError(f"No matching test images for {dataset} under {root}")
+        metrics, inference_time = run_model(model, pair_list, args.device, args.max_side)
         for (hazy, _), (psnr, ssim, runtime) in zip(pair_list, metrics):
             stem = hazy.stem; fog = "heavy" if "0.2" in stem else "medium" if any(x in stem for x in ("0.12", "0.16")) else "light"
             all_rows.append({"dataset": dataset, "data_origin": "synthetic" if dataset.startswith("sots") else "real", "fog_level": fog, "output_psnr": psnr, "output_ssim": ssim, "runtime_ms": runtime})

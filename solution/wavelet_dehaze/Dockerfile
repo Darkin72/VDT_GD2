@@ -18,6 +18,7 @@ COPY utils/excel_report.py utils/evaluation_hardware.py /workspace/ClearAIR/util
 RUN mkdir -p /workspace/ClearAIR/dataset /workspace/ClearAIR/outputs \
     && python -m solution.wavelet_dehaze.train --help \
     && python -m solution.wavelet_dehaze.infer --help \
-    && python -m solution.wavelet_dehaze.evaluate --help
+    && python -m solution.wavelet_dehaze.evaluate --help \
+    && python -m solution.wavelet_dehaze.run_its_ots --help
 
 CMD ["python", "-m", "solution.wavelet_dehaze.train", "--help"]
