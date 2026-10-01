@@ -19,6 +19,7 @@ RUN mkdir -p /workspace/ClearAIR/dataset /workspace/ClearAIR/outputs \
     && python -m solution.wavelet_dehaze.train --help \
     && python -m solution.wavelet_dehaze.infer --help \
     && python -m solution.wavelet_dehaze.evaluate --help \
-    && python -m solution.wavelet_dehaze.run_its_ots --help
+    && python -m solution.wavelet_dehaze.run_its_ots --help \
+    && python -m solution.wavelet_dehaze.run_full_pipeline --help
 
 CMD ["python", "-m", "solution.wavelet_dehaze.train", "--help"]
