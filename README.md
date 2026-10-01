@@ -50,7 +50,7 @@ cd /root
 git clone --filter=blob:none --no-checkout https://github.com/Darkin72/VDT_GD2.git
 cd VDT_GD2
 git sparse-checkout init --no-cone
-git sparse-checkout set /README.md /.dockerignore /solution/wavelet_dehaze/ /utils/
+git sparse-checkout set /README.md /.dockerignore /scripts/ /solution/wavelet_dehaze/ /utils/
 git checkout
 buildctl debug workers
 ```
@@ -65,18 +65,10 @@ và ngoài image. Tải cả ITS, OTS và SOTS test theo notebook Colab:
 
 ```bash
 python3 -m venv /root/kaggle-download-env
-/root/kaggle-download-env/bin/python -m pip install kaggle
-mkdir -p /root/clearair-data/{ITS,OTS,SOTS-download} /root/clearair-output
-/root/kaggle-download-env/bin/kaggle datasets download \
-  -d balraj98/indoor-training-set-its-residestandard \
-  -p /root/clearair-data/ITS --unzip
-/root/kaggle-download-env/bin/kaggle datasets download \
-  -d brunobelloni/outdoor-training-set-ots-reside \
-  -p /root/clearair-data/OTS --unzip
-/root/kaggle-download-env/bin/kaggle datasets download \
-  -d balraj98/synthetic-objective-testing-set-sots-reside \
-  -p /root/clearair-data/SOTS-download --unzip
-find /root/clearair-data -type d \( -name hazy -o -name clear \)
+/root/kaggle-download-env/bin/python -m pip install --upgrade kaggle
+mkdir -p /root/clearair-output
+chmod +x scripts/download_kaggle_datasets.sh
+bash scripts/download_kaggle_datasets.sh
 ```
 
 Nếu thiếu `venv`, cài `python3-venv` bằng apt trước bước này. Cần Internet,
@@ -475,3 +467,20 @@ bash scripts/download_kaggle_datasets.sh OTS
 If the process is killed again, inspect `free -h`, `df -h /root` and
 `dmesg -T | tail -n 80` for memory or disk pressure. Do not run two downloads
 into the same directory.
+
+## Authentication checklist
+
+Before dataset download, upload a Kaggle legacy API credential to
+`/root/.kaggle/kaggle.json` and run:
+
+```bash
+mkdir -p /root/.kaggle
+chmod 700 /root/.kaggle
+chmod 600 /root/.kaggle/kaggle.json
+test -s /root/.kaggle/kaggle.json
+```
+
+The file must contain `username` and `key`. Do not commit it or copy it into
+the Docker build context. Before a BuildKit push, create Docker Hub auth in
+`~/.docker/config.json` using the prompt-based login script in the BuildKit
+section above. BuildKit reads that file directly; Docker daemon is not needed.
