@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
@@ -104,6 +105,7 @@ def evaluate(model: HazeWaveNet, loader: DataLoader, device: str) -> tuple[float
 def main() -> None:
     ap = argparse.ArgumentParser(); ap.add_argument("data", type=Path); ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--batch-size", type=int, default=4); ap.add_argument("--size", type=int, default=256)
+    ap.add_argument("--micro-batch-size", type=int, default=None, help="Physical batch per forward; gradients accumulate to --batch-size")
     ap.add_argument("--lr", type=float, default=1e-4); ap.add_argument("--weight-decay", type=float, default=1e-4)
     ap.add_argument("--scheduler", choices=("none", "cosine", "step"), default="none")
     ap.add_argument("--min-lr", type=float, default=1e-6); ap.add_argument("--step-size", type=int, default=100)
@@ -138,8 +140,12 @@ def main() -> None:
         train_dataset, val_dataset = Subset(train_base, train_indices), Subset(val_base, val_indices)
     else:
         train_dataset, val_dataset = train_base, None
+    micro_batch_size = args.micro_batch_size or args.batch_size
+    if micro_batch_size < 1 or micro_batch_size > args.batch_size:
+        raise ValueError("--micro-batch-size must be between 1 and --batch-size")
+    accumulation_steps = (args.batch_size + micro_batch_size - 1) // micro_batch_size
     loader_kwargs = {
-        "batch_size": args.batch_size,
+        "batch_size": micro_batch_size,
         "num_workers": args.num_workers,
         "pin_memory": args.pin_memory and device == "cuda",
         "persistent_workers": False,
@@ -148,7 +154,7 @@ def main() -> None:
         loader_kwargs["prefetch_factor"] = args.prefetch_factor
     loader = DataLoader(train_dataset, shuffle=True, **loader_kwargs)
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_kwargs) if val_dataset is not None else None
-    print(f"train_images={len(train_dataset)} val_images={len(val_dataset) if val_dataset is not None else 0} train_batches={len(loader)} batch_size={args.batch_size} workers={args.num_workers} prefetch={args.prefetch_factor if args.num_workers else 0}", flush=True)
+    print(f"train_images={len(train_dataset)} val_images={len(val_dataset) if val_dataset is not None else 0} train_batches={len(loader)} effective_batch={args.batch_size} micro_batch={micro_batch_size} accumulation_steps={accumulation_steps} workers={args.num_workers} prefetch={args.prefetch_factor if args.num_workers else 0}", flush=True)
     model = HazeWaveNet().to(device)
     if args.multi_gpu:
         if device != "cuda" or not torch.cuda.is_available() or torch.cuda.device_count() < 2:
@@ -165,30 +171,37 @@ def main() -> None:
     show_tqdm = os.environ.get("HW_TQDM", "auto") == "1" or (os.environ.get("HW_TQDM", "auto") == "auto" and sys.stdout.isatty())
     epoch_bar = tqdm(range(args.epochs), desc="Training", unit="epoch", disable=not show_tqdm)
     show_batch_progress = show_tqdm and os.environ.get("HW_TQDM_BATCH", "0") == "1"
+    training_start = time.perf_counter()
     for epoch in epoch_bar:
-        model.train(); total = total_psnr = total_ssim = 0.0; batches = 0
+        model.train(); total = total_psnr = total_ssim = 0.0; batches = 0; optimizer.zero_grad(set_to_none=True)
         # Nested tqdm redraws become one line per update in Colab's `!python` output.
         batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False, disable=not show_batch_progress)
         for batch_index, (hazy, clear) in enumerate(batch_bar, start=1):
-            hazy, clear = hazy.to(device), clear.to(device); optimizer.zero_grad(set_to_none=True)
+            hazy, clear = hazy.to(device), clear.to(device)
             if args.multi_scale:
                 scale = random.choice((64, 128, 256))
                 hazy = torch.nn.functional.interpolate(hazy, (scale, scale), mode="bilinear", align_corners=False)
                 clear = torch.nn.functional.interpolate(clear, (scale, scale), mode="bilinear", align_corners=False)
-            pred = model(hazy); loss = haze_wavelet_loss(pred, clear); loss.backward(); optimizer.step()
+            pred = model(hazy); loss = haze_wavelet_loss(pred, clear)
+            (loss / accumulation_steps).backward()
+            if batch_index % accumulation_steps == 0 or batch_index == len(loader):
+                optimizer.step(); optimizer.zero_grad(set_to_none=True)
             psnr, ssim = image_metrics(pred.detach(), clear)
             total += loss.item(); total_psnr += psnr; total_ssim += ssim; batches += 1
             batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
-            if not show_tqdm and (batch_index == 1 or batch_index == len(loader) or batch_index % max(1, len(loader) // 10) == 0):
+            if not show_tqdm and (batch_index == 1 or batch_index == len(loader)):
                 print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / batches:.2f} SSIM={total_ssim / batches:.4f}", flush=True)
         train_values = (total / batches, total_psnr / batches, total_ssim / batches)
+        elapsed = time.perf_counter() - training_start
+        eta_seconds = elapsed / (epoch + 1) * (args.epochs - epoch - 1)
         if val_loader is not None:
             val_values = evaluate(model, val_loader, device)
             history.append({"epoch": epoch + 1, "train_loss": train_values[0], "train_psnr": train_values[1], "train_ssim": train_values[2], "val_loss": val_values[0], "val_psnr": val_values[1], "val_ssim": val_values[2]})
             epoch_bar.set_postfix(loss=f"{train_values[0]:.5f}", psnr=f"{train_values[1]:.2f}", val_loss=f"{val_values[0]:.5f}", val_psnr=f"{val_values[1]:.2f}")
             epoch_bar.write(f"epoch {epoch + 1:03d}/{args.epochs} | "
                             f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | "
-                            f"val loss={val_values[0]:.5f} PSNR={val_values[1]:.2f} SSIM={val_values[2]:.4f}")
+                            f"val loss={val_values[0]:.5f} PSNR={val_values[1]:.2f} SSIM={val_values[2]:.4f} | "
+                            f"elapsed={elapsed / 60:.1f}m ETA={eta_seconds / 60:.1f}m")
             if val_values[0] < best_val_loss:
                 best_val_loss, stale_epochs = val_values[0], 0
                 state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
@@ -199,7 +212,8 @@ def main() -> None:
             history.append({"epoch": epoch + 1, "train_loss": train_values[0], "train_psnr": train_values[1], "train_ssim": train_values[2]})
             epoch_bar.set_postfix(loss=f"{train_values[0]:.5f}", psnr=f"{train_values[1]:.2f}", ssim=f"{train_values[2]:.4f}")
             epoch_bar.write(f"epoch {epoch + 1:03d}/{args.epochs} | "
-                            f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable")
+                            f"train loss={train_values[0]:.5f} PSNR={train_values[1]:.2f} SSIM={train_values[2]:.4f} | val unavailable | "
+                            f"elapsed={elapsed / 60:.1f}m ETA={eta_seconds / 60:.1f}m")
         if scheduler is not None:
             scheduler.step()
         # When validation is unavailable, persist the latest state every epoch.
