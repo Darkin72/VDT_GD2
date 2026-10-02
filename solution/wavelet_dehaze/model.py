@@ -23,24 +23,25 @@ def haar_dwt(x: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     return ll, lh, hl, hh
 
 
-def dark_trend(x: Tensor, patch: int = 15, omega: float = 0.95) -> tuple[Tensor, Tensor]:
+def dark_trend(x: Tensor, patch: int = 15, omega: float = 0.95) -> tuple[Tensor, Tensor, Tensor]:
     """DCP-inspired transmittance and normalized haze trend map."""
     dark = x.min(dim=1, keepdim=True).values
     # max-pooling on the negative image is a fast differentiable erosion.
     dark = -F.max_pool2d(-dark, patch, stride=1, padding=patch // 2)
-    flat_dark = dark.flatten(1)
-    top_count = max(1, int(flat_dark.shape[1] * 0.001))
-    atmospheric = flat_dark.topk(top_count, dim=1).values.mean(dim=1, keepdim=True).view(-1, 1, 1, 1).clamp_min(1e-3)
+    top_count = max(1, int(dark.shape[-2] * dark.shape[-1] * 0.001))
+    atmospheric = dark.flatten(1).topk(top_count, dim=1).values.mean(dim=1, keepdim=True)
+    atmospheric = atmospheric.view(-1, 1, 1, 1).clamp_min(1e-3)
     trans = (1.0 - omega * dark / atmospheric).clamp(0.1, 1.0)
     mean = trans.mean(dim=(2, 3), keepdim=True)
-    std = trans.std(dim=(2, 3), keepdim=True, unbiased=False).clamp_min(0.01)
-    trend = torch.sigmoid((trans - mean) / std)
-    return trans, trend
+    std = trans.std(dim=(2, 3), keepdim=True, unbiased=False)
+    trend = torch.sigmoid((trans - mean) / (std + 0.01))
+    return trans, trend, dark
 
 
 class GuidedBlock(nn.Module):
     def __init__(self, channels: int = 32):
         super().__init__()
+        self.mapping = nn.Conv2d(channels, channels, 3, padding=1, padding_mode="reflect")
         self.factor = nn.Sequential(
             nn.Conv2d(channels, channels, (1, 3), padding=(0, 1), padding_mode="reflect"),
             nn.ReLU(inplace=True),
@@ -48,14 +49,20 @@ class GuidedBlock(nn.Module):
         )
         self.channel = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(channels, channels, 1), nn.Sigmoid())
         self.spatial = nn.Sequential(nn.Conv2d(1, 1, 7, padding=3, padding_mode="reflect"), nn.Sigmoid())
-        self.guide = nn.Conv2d(1, channels, 1)
+        self.haze_mask = nn.Conv2d(1, channels, 1)
+        self.lambda_channel = nn.Parameter(torch.zeros(1, channels, 1, 1))
+        self.lambda_spatial = nn.Parameter(torch.zeros(1, 1, 1, 1))
         self.norm = nn.InstanceNorm2d(channels, affine=True)
 
-    def forward(self, x: Tensor, trend: Tensor) -> Tensor:
+    def forward(self, x: Tensor, trans: Tensor, trend: Tensor, guide: Tensor) -> Tensor:
+        x = self.mapping(x)
         t = F.interpolate(trend, size=x.shape[-2:], mode="bilinear", align_corners=False)
-        guided = x * (1.0 + torch.sigmoid(self.guide(t)))
-        y = self.factor(guided)
-        y = y * self.channel(y) * self.spatial(y.mean(1, keepdim=True))
+        guided = x * (1.0 + self.lambda_channel * guide) * (1.0 + self.lambda_spatial * t)
+        factorized = self.factor(guided)
+        attention = guided * self.channel(guided) * self.spatial(guided.mean(1, keepdim=True))
+        y = factorized + attention
+        u = F.interpolate(trans, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        y = y * self.haze_mask(u)
         return self.norm(x + y)
 
 
@@ -64,10 +71,24 @@ class GuidedGroup(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([GuidedBlock(channels) for _ in range(blocks)])
 
-    def forward(self, x: Tensor, trend: Tensor) -> Tensor:
+    def forward(self, x: Tensor, trans: Tensor, trend: Tensor, guide: Tensor) -> Tensor:
+        residual = x
         for block in self.blocks:
-            x = block(x, trend)
-        return x
+            x = block(x, trans, trend, guide)
+        return x + residual
+
+class GuideBranch(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Conv2d(1, channels, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, dark: Tensor) -> Tensor:
+        return self.mlp(dark.mean(dim=(2, 3), keepdim=True))
 
 class VariationPath(nn.Module):
     def __init__(self, channels: int):
@@ -79,16 +100,14 @@ class VariationPath(nn.Module):
         )
         self.vr = nn.Sequential(
             nn.Conv2d(channels, channels, 3, stride=2, padding=1),
-            nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels, 3, padding=1),
             nn.ReLU(inplace=True),
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        processed = self.vp(x)
-        reduced = F.interpolate(self.vr(x), size=x.shape[-2:], mode="bilinear", align_corners=False)
-        return processed + reduced
-
+        vp = self.vp(x)
+        vr = F.interpolate(self.vr(x), size=x.shape[-2:], mode="bilinear", align_corners=False)
+        return vp + vr
 
 class HazeWaveNet(nn.Module):
     """Parameter-efficient four-level Haar wavelet dehazer (paper's default)."""
@@ -98,6 +117,7 @@ class HazeWaveNet(nn.Module):
             raise ValueError("levels must be between 1 and 4")
         self.levels = levels
         self.stem = nn.Conv2d(3, channels, 3, padding=1, padding_mode="reflect")
+        self.guide = GuideBranch(channels)
         self.low_projection = nn.ModuleList([nn.Conv2d(channels, channels, 1) for _ in range(levels)])
         self.low = nn.ModuleList([GuidedGroup(channels, blocks) for _ in range(levels)])
         self.high_projection = nn.ModuleList([nn.Conv2d(channels * 3, channels, 1) for _ in range(levels)])
@@ -105,16 +125,18 @@ class HazeWaveNet(nn.Module):
         self.up = nn.ModuleList([nn.ConvTranspose2d(channels, channels, 2, stride=2) for _ in range(levels - 1)])
         self.merge = nn.ModuleList([nn.Conv2d(channels * 2, channels, 3, padding=1) for _ in range(levels)])
         self.region = nn.ModuleList([nn.Sequential(nn.Conv2d(channels, 1, 1), nn.Sigmoid()) for _ in range(levels)])
+        self.refine = nn.ModuleList([nn.Sequential(nn.Conv2d(channels, channels, 3, padding=1), nn.ReLU(inplace=True)) for _ in range(levels)])
         self.out = nn.Sequential(nn.Conv2d(channels, channels, 3, padding=1, padding_mode="reflect"), nn.ReLU(inplace=True), nn.Conv2d(channels, 3, 3, padding=1, padding_mode="reflect"))
 
     def forward(self, x: Tensor) -> Tensor:
         original_size = x.shape[-2:]
-        trans, trend = dark_trend(x)
+        trans, trend, dark = dark_trend(x)
+        guide = self.guide(dark)
         feat = self.stem(x)
         details: list[Tensor] = []
         for i in range(self.levels):
             ll, lh, hl, hh = haar_dwt(feat)
-            feat = self.low[i](self.low_projection[i](ll), trend)
+            feat = self.low[i](self.low_projection[i](ll), trans, trend, guide)
             high = self.high_projection[i](torch.cat((lh, hl, hh), dim=1))
             details.append(self.high[i](high))
         # WIM: learnable coarse-to-fine reconstruction, retaining every detail scale.
@@ -124,7 +146,7 @@ class HazeWaveNet(nn.Module):
             if feat.shape[-2:] != details[i].shape[-2:]:
                 feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
             fused = F.relu(self.merge[i](torch.cat((feat, details[i]), dim=1)), inplace=True)
-            feat = fused * self.region[i](fused) + feat
+            feat = self.refine[i](fused * self.region[i](fused)) + feat
         result = torch.tanh(self.out(feat)).add(1.0).mul(0.5)
         result = F.interpolate(result, size=original_size, mode="bilinear", align_corners=False)
         return result.clamp(0.0, 1.0)
@@ -147,12 +169,12 @@ class HazeWaveNet(nn.Module):
         result = None
         for _ in range(repeats):
             start = now()
-            t = now(); _, trend = dark_trend(x); totals["dcp_fixed_prior"] += now() - t
+            t = now(); trans, trend, dark = dark_trend(x); guide = self.guide(dark); totals["dcp_fixed_prior"] += now() - t
             t = now(); feat = self.stem(x); totals["dwt_mfde_decomposition"] += now() - t
             details = []
             for i in range(self.levels):
                 t = now(); ll, lh, hl, hh = haar_dwt(feat); totals["dwt_mfde_decomposition"] += now() - t
-                t = now(); feat = self.low[i](self.low_projection[i](ll), trend); totals["low_frequency_fegg_fegb"] += now() - t
+                t = now(); feat = self.low[i](self.low_projection[i](ll), trans, trend, guide); totals["low_frequency_fegg_fegb"] += now() - t
                 t = now(); high = self.high_projection[i](torch.cat((lh, hl, hh), dim=1)); details.append(self.high[i](high)); totals["high_frequency_vp_vr"] += now() - t
             t = now()
             for i in range(self.levels - 1, -1, -1):
@@ -161,7 +183,7 @@ class HazeWaveNet(nn.Module):
                 if feat.shape[-2:] != details[i].shape[-2:]:
                     feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
                 fused = F.relu(self.merge[i](torch.cat((feat, details[i]), dim=1)), inplace=True)
-                feat = fused * self.region[i](fused) + feat
+                feat = self.refine[i](fused * self.region[i](fused)) + feat
             totals["wim_reconstruction"] += now() - t
             t = now()
             result = torch.tanh(self.out(feat)).add(1.0).mul(0.5)
@@ -173,12 +195,9 @@ class HazeWaveNet(nn.Module):
 
 
 def haze_wavelet_loss(pred: Tensor, target: Tensor, theta: float = 0.2) -> Tensor:
-    """Paper Eq. (8-9): amplitude L1 plus four-band decomposition MSE."""
-    p, t = pred, target
-    p_bands, t_bands = [], []
-    for _ in range(4):
-        p, *pb = haar_dwt(p); t, *tb = haar_dwt(t)
-        p_bands.extend([p, *pb]); t_bands.extend([t, *tb])
-    decomposition = sum(F.mse_loss(a, b) for a, b in zip(p_bands, t_bands)) / len(p_bands)
-    amplitude = sum(F.l1_loss(a.abs(), b.abs()) for a, b in zip(p_bands, t_bands)) / len(p_bands)
+    """Paper Eq. (8-9): one-level four-band amplitude and decomposition losses."""
+    p_bands = haar_dwt(pred)
+    t_bands = haar_dwt(target)
+    decomposition = sum(F.mse_loss(a, b) for a, b in zip(p_bands, t_bands)) / 4.0
+    amplitude = sum(F.l1_loss(a.abs(), b.abs()) for a, b in zip(p_bands, t_bands)) / 4.0
     return theta * amplitude + (1.0 - theta) * decomposition
