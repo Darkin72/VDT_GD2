@@ -170,8 +170,8 @@ def main() -> None:
     ap.add_argument("--cache-dir", type=Path, default=None,
                     help="Optional disk cache for resized uint8 image pairs")
     args = ap.parse_args()
-    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 1 or args.metrics_every < 1:
-        ap.error("workers/profile-batches must be nonnegative and prefetch/log/metrics-every must be positive")
+    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 0 or args.metrics_every < 0:
+        ap.error("workers/profile-batches/log/metrics-every must be nonnegative; prefetch-factor must be positive")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
