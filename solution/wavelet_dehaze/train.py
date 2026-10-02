@@ -292,10 +292,12 @@ def main() -> None:
                 print(f"CUDA peak allocated={torch.cuda.max_memory_allocated() / 2**30:.2f} GiB "
                       f"peak reserved={torch.cuda.max_memory_reserved() / 2**30:.2f} GiB", flush=True)
         train_values = (total / batches, total_psnr / max(1, metric_batches), total_ssim / max(1, metric_batches))
+        validation_start = time.perf_counter()
+        val_values = evaluate(model, val_loader, device) if val_loader is not None else None
+        validation_seconds = time.perf_counter() - validation_start
         elapsed = time.perf_counter() - training_start
         eta_seconds = elapsed / (epoch + 1) * (args.epochs - epoch - 1)
         if val_loader is not None:
-            val_values = evaluate(model, val_loader, device)
             history.append({"epoch": epoch + 1, "train_loss": train_values[0], "train_psnr": train_values[1], "train_ssim": train_values[2], "val_loss": val_values[0], "val_psnr": val_values[1], "val_ssim": val_values[2]})
             epoch_bar.set_postfix(loss=f"{train_values[0]:.5f}", psnr=f"{train_values[1]:.2f}", val_loss=f"{val_values[0]:.5f}", val_psnr=f"{val_values[1]:.2f}")
             epoch_bar.write(f"epoch {epoch + 1:03d}/{args.epochs} | "
@@ -321,8 +323,14 @@ def main() -> None:
             state = model.module.state_dict() if isinstance(model, torch.nn.DataParallel) else model.state_dict()
             torch.save({"model": state, "epoch": epoch + 1}, args.out)
         if args.history:
+            history[-1].update({"train_seconds": train_seconds, "validation_seconds": validation_seconds,
+                                "epoch_seconds": time.perf_counter() - epoch_start})
             args.history.parent.mkdir(parents=True, exist_ok=True)
             args.history.write_text(json.dumps(history, indent=2), encoding="utf-8")
+        epoch_seconds = time.perf_counter() - epoch_start
+        print(f"timing: train={train_seconds:.1f}s validation={validation_seconds:.1f}s "
+              f"epoch_total={epoch_seconds:.1f}s | "
+              f"remaining_at_current_speed={epoch_seconds * (args.epochs - epoch - 1) / 3600:.2f}h", flush=True)
         if args.patience and stale_epochs >= args.patience:
             epoch_bar.write(f"Early stopping at epoch {epoch + 1}; validation loss did not improve for {args.patience} epochs.")
             break
