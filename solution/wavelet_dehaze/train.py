@@ -128,6 +128,7 @@ def main() -> None:
     ap.add_argument("--amp-dtype", choices=("float16", "bfloat16"), default="float16")
     ap.add_argument("--profile-batches", type=int, default=0, help="Synchronize and time the first N batches of epoch 1; 0 disables profiling")
     ap.add_argument("--log-every", type=int, default=10, help="Print progress every N batches when tqdm is disabled")
+    ap.add_argument("--metrics-every", type=int, default=10, help="Compute PSNR/SSIM every N batches; loss is unchanged")
     ap.add_argument("--val-fraction", type=float, default=0.0, help="Grouped validation fraction when --val-data is absent")
     ap.add_argument("--split-seed", type=int, default=42, help="Seed for the grouped train/validation split")
     ap.add_argument("--val-data", type=Path, default=None,
@@ -135,8 +136,8 @@ def main() -> None:
     ap.add_argument("--history", type=Path, default=None,
                     help="Optional JSON file for per-epoch train/validation metrics")
     args = ap.parse_args()
-    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 1:
-        ap.error("workers/profile-batches must be nonnegative and prefetch/log-every must be positive")
+    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 1 or args.metrics_every < 1:
+        ap.error("workers/profile-batches must be nonnegative and prefetch/log/metrics-every must be positive")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
@@ -206,7 +207,7 @@ def main() -> None:
         profile_rows = []
         if args.profile_batches and epoch == 0 and device == "cuda":
             torch.cuda.reset_peak_memory_stats()
-        model.train(); total = total_psnr = total_ssim = 0.0; batches = 0; optimizer.zero_grad(set_to_none=True)
+        model.train(); total = total_psnr = total_ssim = 0.0; metric_batches = 0; batches = 0; optimizer.zero_grad(set_to_none=True)
         # Nested tqdm redraws become one line per update in Colab's `!python` output.
         batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False, disable=not show_batch_progress)
         batch_end = time.perf_counter()
@@ -229,16 +230,20 @@ def main() -> None:
             scaler.scale(loss / accumulation_steps).backward()
             if batch_index % accumulation_steps == 0 or batch_index == len(loader):
                 scaler.step(optimizer); scaler.update(); optimizer.zero_grad(set_to_none=True)
-            psnr, ssim = image_metrics(pred.detach(), clear)
-            total += loss.item(); total_psnr += psnr; total_ssim += ssim; batches += 1
+            total += loss.item(); batches += 1
+            measure_metrics = batch_index == 1 or batch_index % args.metrics_every == 0 or batch_index == len(loader)
+            if measure_metrics:
+                psnr, ssim = image_metrics(pred.detach(), clear)
+                total_psnr += psnr; total_ssim += ssim; metric_batches += 1
             if profiling:
                 if device == "cuda":
                     torch.cuda.synchronize()
                 profile_rows.append((batch_ready - batch_end, transfer_end - batch_ready,
                                      time.perf_counter() - transfer_end))
-            batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
+            metric_divisor = max(1, metric_batches)
+            batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / metric_divisor:.2f}", ssim=f"{total_ssim / metric_divisor:.4f}")
             if not show_tqdm and (batch_index == 1 or batch_index % args.log_every == 0 or batch_index == len(loader)):
-                print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / batches:.2f} SSIM={total_ssim / batches:.4f}", flush=True)
+                print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / metric_divisor:.2f} SSIM={total_ssim / metric_divisor:.4f}", flush=True)
             batch_end = time.perf_counter()
         train_seconds = time.perf_counter() - epoch_start
         print(f"throughput={len(train_dataset) / train_seconds:.1f} images/s train_seconds={train_seconds:.1f}", flush=True)
@@ -249,7 +254,7 @@ def main() -> None:
             if device == "cuda":
                 print(f"CUDA peak allocated={torch.cuda.max_memory_allocated() / 2**30:.2f} GiB "
                       f"peak reserved={torch.cuda.max_memory_reserved() / 2**30:.2f} GiB", flush=True)
-        train_values = (total / batches, total_psnr / batches, total_ssim / batches)
+        train_values = (total / batches, total_psnr / max(1, metric_batches), total_ssim / max(1, metric_batches))
         elapsed = time.perf_counter() - training_start
         eta_seconds = elapsed / (epoch + 1) * (args.epochs - epoch - 1)
         if val_loader is not None:
