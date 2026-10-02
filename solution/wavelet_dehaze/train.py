@@ -144,10 +144,11 @@ def main() -> None:
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
     if amp_enabled and amp_dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
         raise RuntimeError("This GPU does not support BF16; use --amp-dtype float16")
-    print(f"device={device}")
+    print(f"device={device} | preparing dataset...", flush=True)
     if not 0.0 <= args.val_fraction < 1.0:
         raise ValueError("--val-fraction must be in [0, 1)")
     train_base = PairedImages(args.data, args.size, args.augment)
+    print(f"dataset indexed: {len(train_base)} paired images", flush=True)
     val_root = args.val_data or args.data.parent / "val"
     if val_root.is_dir():
         train_dataset, val_dataset = train_base, PairedImages(val_root, args.size)
@@ -157,6 +158,7 @@ def main() -> None:
         train_dataset, val_dataset = Subset(train_base, train_indices), Subset(val_base, val_indices)
     else:
         train_dataset, val_dataset = train_base, None
+    print(f"split ready: train={len(train_dataset)} val={len(val_dataset) if val_dataset is not None else 0}", flush=True)
     micro_batch_size = args.micro_batch_size or args.batch_size
     if micro_batch_size < 1 or micro_batch_size > args.batch_size:
         raise ValueError("--micro-batch-size must be between 1 and --batch-size")
