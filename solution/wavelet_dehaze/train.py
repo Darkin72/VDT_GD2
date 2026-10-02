@@ -108,6 +108,7 @@ def evaluate(model: HazeWaveNet, loader: DataLoader, device: str) -> tuple[float
     return total_loss / batches, total_psnr / batches, total_ssim / batches
 
 def main() -> None:
+    print("TRAIN PROCESS STARTED", flush=True)
     ap = argparse.ArgumentParser(); ap.add_argument("data", type=Path); ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--batch-size", type=int, default=4); ap.add_argument("--size", type=int, default=256)
     ap.add_argument("--micro-batch-size", type=int, default=None, help="Physical batch per forward; gradients accumulate to --batch-size")
