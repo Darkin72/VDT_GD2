@@ -269,7 +269,7 @@ def main() -> None:
             if batch_index % accumulation_steps == 0 or batch_index == len(loader):
                 scaler.step(optimizer); scaler.update(); optimizer.zero_grad(set_to_none=True)
             total += loss.item(); batches += 1
-            measure_metrics = batch_index == 1 or batch_index % args.metrics_every == 0 or batch_index == len(loader)
+            measure_metrics = batch_index == len(loader) or (args.metrics_every > 0 and batch_index % args.metrics_every == 0)
             if measure_metrics:
                 psnr, ssim = image_metrics(pred.detach(), clear)
                 total_psnr += psnr; total_ssim += ssim; metric_batches += 1
@@ -280,7 +280,7 @@ def main() -> None:
                                      time.perf_counter() - transfer_end))
             metric_divisor = max(1, metric_batches)
             batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / metric_divisor:.2f}", ssim=f"{total_ssim / metric_divisor:.4f}")
-            if not show_tqdm and (batch_index == 1 or batch_index % args.log_every == 0 or batch_index == len(loader)):
+            if not show_tqdm and args.log_every > 0 and batch_index % args.log_every == 0:
                 print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / metric_divisor:.2f} SSIM={total_ssim / metric_divisor:.4f}", flush=True)
             batch_end = time.perf_counter()
         train_seconds = time.perf_counter() - epoch_start

@@ -32,7 +32,7 @@ def run_training(label, data, output, args, spec):
                "--scheduler", spec["scheduler"], "--min-lr", str(args.min_lr),
                "--step-size", str(args.step_size), "--patience", str(args.patience),
                "--num-workers", str(args.num_workers), "--prefetch-factor", str(args.prefetch_factor),
-               "--out", str(checkpoint), "--history", str(history), "--log-every", "1", "--metrics-every", "10",
+               "--out", str(checkpoint), "--history", str(history), "--log-every", "0", "--metrics-every", "0",
                "--cache-dir", str(args.output_dir / "cache" / slug), "--amp-dtype", args.amp_dtype]
     if spec.get("val_data") and spec["val_data"].is_dir():
         command += ["--val-data", str(spec["val_data"])]
@@ -74,6 +74,7 @@ def main():
     parser.add_argument("--its-data", type=Path, required=True)
     parser.add_argument("--ots-data", type=Path, required=True)
     parser.add_argument("--eval-data-root", type=Path, required=True)
+    parser.add_argument("--mode", choices=("ITS", "OTS"), default="ITS", help="ITS trains I-HAZE, O-HAZY and SOTS-ITS; OTS trains SOTS-OTS only")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/hazewavenet"))
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
     parser.add_argument("--size", type=int, default=256)
@@ -105,8 +106,10 @@ def main():
         "SOTS-ITS": {"data": args.its_data, "epochs": 1000, "batch": 16, "lr": 2e-4, "scheduler": "cosine"},
         "SOTS-OTS": {"data": args.ots_data, "epochs": 1000, "batch": 16, "lr": 1e-4, "scheduler": "cosine"},
     }
+    selected_labels = ("I-HAZE", "O-HAZY", "SOTS-ITS") if args.mode == "ITS" else ("SOTS-OTS",)
+    specs = {label: specs[label] for label in selected_labels}
     checkpoints, histories = {}, {}
-    print("[1/3] Training four datasets", flush=True)
+    print("[1/3] Training mode=" + args.mode + ": " + ", ".join(selected_labels), flush=True)
     for label, spec in specs.items():
         checkpoints[label], histories[label] = run_training(label, spec["data"], args.output_dir, args, spec)
     print("[2/3] Writing metric plots", flush=True)
@@ -116,9 +119,11 @@ def main():
                "--output-dir", str(args.output_dir / "reports"), "--device", args.device,
                "--max-side", "1024", "--profile-repeats", str(args.profile_repeats),
                "--save-images-dir", str(args.output_dir / "inference")]
-    for option, label in (("--checkpoint-i-haze", "I-HAZE"), ("--checkpoint-o-hazy", "O-HAZY"),
-                          ("--checkpoint-sots-its", "SOTS-ITS"), ("--checkpoint-sots-ots", "SOTS-OTS")):
-        command += [option, str(checkpoints[label])]
+    checkpoint_options = (("--checkpoint-i-haze", "I-HAZE"), ("--checkpoint-o-hazy", "O-HAZY"),
+                          ("--checkpoint-sots-its", "SOTS-ITS"), ("--checkpoint-sots-ots", "SOTS-OTS"))
+    for option, label in checkpoint_options:
+        if label in checkpoints:
+            command += [option, str(checkpoints[label])]
     stream_command(command, "EVAL")
     print(f"Completed. Results: {args.output_dir}", flush=True)
 
