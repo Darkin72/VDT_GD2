@@ -21,6 +21,7 @@ def run_training(label, data, output, args, spec):
     slug = label.lower().replace("-", "_")
     checkpoint = output / f"haze_wavelet_{slug}.pt"
     history = output / f"history_{slug}.json"
+    log_path = args.log_dir / f"model_train_{slug}.log"
     effective_batch = args.effective_batch_size or spec["batch"]
     if effective_batch < 1:
         raise ValueError("--effective-batch-size must be positive")
@@ -44,7 +45,12 @@ def run_training(label, data, output, args, spec):
         if enabled:
             command.append(flag)
     print(f"[TRAIN {label}] epochs={spec['epochs']} batch={effective_batch} micro={physical_batch} lr={spec['lr']} scheduler={spec['scheduler']}", flush=True)
-    stream_command(command, f"TRAIN {label}")
+    print(f"[TRAIN {label}] log: {log_path}", flush=True)
+    with log_path.open("ab") as log_file:
+        process = subprocess.Popen(["nohup", *command], stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True)
+        code = process.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, command)
     return checkpoint, history
 
 
@@ -76,6 +82,7 @@ def main():
     parser.add_argument("--eval-data-root", type=Path, required=True)
     parser.add_argument("--mode", choices=("ITS", "OTS"), default="ITS", help="ITS trains I-HAZE, O-HAZY and SOTS-ITS; OTS trains SOTS-OTS only")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/hazewavenet"))
+    parser.add_argument("--log-dir", type=Path, default=Path("."), help="Directory for per-dataset nohup training logs")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cuda")
     parser.add_argument("--size", type=int, default=256)
     parser.add_argument("--micro-batch-size", type=int, default=16)
@@ -100,6 +107,7 @@ def main():
         import torch
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.log_dir.mkdir(parents=True, exist_ok=True)
     specs = {
         "I-HAZE": {"data": args.i_haze_data, "epochs": 500, "batch": 8, "lr": 2e-4, "scheduler": "step", "val_data": args.i_haze_data.parent / "val"},
         "O-HAZY": {"data": args.o_hazy_data, "epochs": 500, "batch": 8, "lr": 2e-4, "scheduler": "step", "val_data": args.o_hazy_data.parent / "val"},
