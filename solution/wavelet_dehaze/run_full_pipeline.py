@@ -1,10 +1,21 @@
 from __future__ import annotations
 import argparse
+import os
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+
+def stream_command(command, label):
+    print(f"[{label}] launching: {' '.join(command)}", flush=True)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line, end="", flush=True)
+    code = process.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, command)
 
 def run_training(label, data, output, args, spec):
     slug = label.lower().replace("-", "_")
@@ -33,7 +44,7 @@ def run_training(label, data, output, args, spec):
         if enabled:
             command.append(flag)
     print(f"[TRAIN {label}] epochs={spec['epochs']} batch={effective_batch} micro={physical_batch} lr={spec['lr']} scheduler={spec['scheduler']}", flush=True)
-    subprocess.run(command, check=True)
+    stream_command(command, f"TRAIN {label}")
     return checkpoint, history
 
 
@@ -108,7 +119,7 @@ def main():
     for option, label in (("--checkpoint-i-haze", "I-HAZE"), ("--checkpoint-o-hazy", "O-HAZY"),
                           ("--checkpoint-sots-its", "SOTS-ITS"), ("--checkpoint-sots-ots", "SOTS-OTS")):
         command += [option, str(checkpoints[label])]
-    subprocess.run(command, check=True)
+    stream_command(command, "EVAL")
     print(f"Completed. Results: {args.output_dir}", flush=True)
 
 

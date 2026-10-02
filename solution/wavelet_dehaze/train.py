@@ -87,15 +87,16 @@ class PairedImages(Dataset):
         if self.cache_dir is None:
             return 0
         missing = [i for i in range(len(self.items)) if not (self.cache_dir / f"{i:06d}.pt").is_file()]
-        for index in tqdm(missing, desc=f"Caching {self.size}x{self.size}", unit="image"):
-            self[index] if not self.augment else self._cache_one(index)
+        for count, index in enumerate(missing, 1):
+            self._cache_one(index)
+            if count == 1 or count % 500 == 0 or count == len(missing):
+                print(f"resize cache: {count}/{len(missing)}", flush=True)
         return len(missing)
 
     def _cache_one(self, i):
         cache_path = self.cache_dir / f"{i:06d}.pt"
         out = self._load_images(i)
         torch.save(tuple(x.permute(1, 2, 0).mul(255).round().to(torch.uint8) for x in out), cache_path)
-
 
 def image_metrics(pred: torch.Tensor, target: torch.Tensor) -> tuple[float, float]:
     """Return batch-averaged PSNR and global SSIM (images are in [0, 1])."""
