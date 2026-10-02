@@ -124,6 +124,8 @@ def main() -> None:
     ap.add_argument("--pin-memory", action="store_true", help="Pin DataLoader CPU memory")
     ap.add_argument("--persistent-workers", action="store_true", help="Keep DataLoader workers alive between epochs")
     ap.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision")
+    ap.add_argument("--amp-dtype", choices=("float16", "bfloat16"), default="float16")
+    ap.add_argument("--profile-batches", type=int, default=0, help="Synchronize and time the first N batches of epoch 1; 0 disables profiling")
     ap.add_argument("--val-fraction", type=float, default=0.0, help="Grouped validation fraction when --val-data is absent")
     ap.add_argument("--split-seed", type=int, default=42, help="Seed for the grouped train/validation split")
     ap.add_argument("--val-data", type=Path, default=None,
@@ -131,11 +133,17 @@ def main() -> None:
     ap.add_argument("--history", type=Path, default=None,
                     help="Optional JSON file for per-epoch train/validation metrics")
     args = ap.parse_args()
+    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0:
+        ap.error("workers/profile-batches must be nonnegative and prefetch-factor must be positive")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     if device == "cuda":
         torch.backends.cudnn.benchmark = True
+    amp_enabled = args.amp and device == "cuda"
+    amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
+    if amp_enabled and amp_dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        raise RuntimeError("This GPU does not support BF16; use --amp-dtype float16")
     print(f"device={device}")
     if not 0.0 <= args.val_fraction < 1.0:
         raise ValueError("--val-fraction must be in [0, 1)")
@@ -170,7 +178,8 @@ def main() -> None:
             raise RuntimeError("--multi-gpu requires at least two visible CUDA devices")
         model = torch.nn.DataParallel(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
-    scaler = torch.amp.GradScaler("cuda", enabled=args.amp and device == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled and amp_dtype == torch.float16)
+    print(f"amp={amp_enabled} amp_dtype={args.amp_dtype} multi_scale={args.multi_scale} pin_memory={loader_kwargs['pin_memory']}", flush=True)
     scheduler = None
     if args.scheduler == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=args.min_lr)
@@ -183,25 +192,50 @@ def main() -> None:
     show_batch_progress = show_tqdm and os.environ.get("HW_TQDM_BATCH", "0") == "1"
     training_start = time.perf_counter()
     for epoch in epoch_bar:
+        epoch_start = time.perf_counter()
+        profile_rows = []
+        if args.profile_batches and epoch == 0 and device == "cuda":
+            torch.cuda.reset_peak_memory_stats()
         model.train(); total = total_psnr = total_ssim = 0.0; batches = 0; optimizer.zero_grad(set_to_none=True)
         # Nested tqdm redraws become one line per update in Colab's `!python` output.
         batch_bar = tqdm(loader, desc=f"Epoch {epoch + 1}/{args.epochs}", unit="batch", leave=False, disable=not show_batch_progress)
+        batch_end = time.perf_counter()
         for batch_index, (hazy, clear) in enumerate(batch_bar, start=1):
+            profiling = epoch == 0 and batch_index <= args.profile_batches
+            batch_ready = time.perf_counter()
             hazy, clear = hazy.to(device, non_blocking=True), clear.to(device, non_blocking=True)
+            if profiling and device == "cuda":
+                torch.cuda.synchronize()
+            transfer_end = time.perf_counter()
             if args.multi_scale:
                 scale = random.choice((64, 128, 256))
                 hazy = torch.nn.functional.interpolate(hazy, (scale, scale), mode="bilinear", align_corners=False)
                 clear = torch.nn.functional.interpolate(clear, (scale, scale), mode="bilinear", align_corners=False)
-            with torch.autocast(device_type=device, dtype=torch.float16, enabled=args.amp and device == "cuda"):
+            with torch.autocast(device_type=device, dtype=amp_dtype, enabled=amp_enabled):
                 pred = model(hazy); loss = haze_wavelet_loss(pred, clear)
             scaler.scale(loss / accumulation_steps).backward()
             if batch_index % accumulation_steps == 0 or batch_index == len(loader):
                 scaler.step(optimizer); scaler.update(); optimizer.zero_grad(set_to_none=True)
             psnr, ssim = image_metrics(pred.detach(), clear)
             total += loss.item(); total_psnr += psnr; total_ssim += ssim; batches += 1
+            if profiling:
+                if device == "cuda":
+                    torch.cuda.synchronize()
+                profile_rows.append((batch_ready - batch_end, transfer_end - batch_ready,
+                                     time.perf_counter() - transfer_end))
             batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
             if not show_tqdm and (batch_index == 1 or batch_index == len(loader)):
                 print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / batches:.2f} SSIM={total_ssim / batches:.4f}", flush=True)
+            batch_end = time.perf_counter()
+        train_seconds = time.perf_counter() - epoch_start
+        print(f"throughput={len(train_dataset) / train_seconds:.1f} images/s train_seconds={train_seconds:.1f}", flush=True)
+        if profile_rows:
+            data_wait, transfer, compute = np.mean(profile_rows, axis=0)
+            print(f"profile first {len(profile_rows)} batches (includes warmup): "
+                  f"data_wait={data_wait:.3f}s H2D={transfer:.3f}s compute_and_metrics={compute:.3f}s per batch", flush=True)
+            if device == "cuda":
+                print(f"CUDA peak allocated={torch.cuda.max_memory_allocated() / 2**30:.2f} GiB "
+                      f"peak reserved={torch.cuda.max_memory_reserved() / 2**30:.2f} GiB", flush=True)
         train_values = (total / batches, total_psnr / batches, total_ssim / batches)
         elapsed = time.perf_counter() - training_start
         eta_seconds = elapsed / (epoch + 1) * (args.epochs - epoch - 1)
