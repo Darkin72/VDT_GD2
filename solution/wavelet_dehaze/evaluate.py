@@ -48,7 +48,7 @@ def pairs(root: Path, dataset: str):
     return result
 
 
-def run_model(model, pair_list, device, max_side, profile_repeats):
+def run_model(model, pair_list, device, max_side, profile_repeats, save_dir=None):
     rows, elapsed_total = [], 0.0
     for index, (hazy_path, clear_path) in enumerate(pair_list, 1):
         started = time.perf_counter()
@@ -71,6 +71,9 @@ def run_model(model, pair_list, device, max_side, profile_repeats):
             torch.cuda.synchronize()
         elapsed_total += stage["total"] / 1000.0
         result = output[0].permute(1, 2, 0).mul(255).clamp(0, 255).byte().cpu().numpy()
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(result).save(save_dir / hazy_path.name)
         row = {
             "dataset": "",
             "image_index": index,
@@ -152,6 +155,7 @@ def main():
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--max-side", type=int, default=1024)
     parser.add_argument("--profile-repeats", type=int, default=10)
+    parser.add_argument("--save-images-dir", type=Path, default=None)
     args = parser.parse_args()
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available")
@@ -177,7 +181,8 @@ def main():
         if not pair_list:
             raise ValueError(f"No matching test images for {dataset} under {root}")
         print(f"[{label}] images={len(pair_list)} profile_repeats={args.profile_repeats}", flush=True)
-        rows, inference_time = run_model(model, pair_list, args.device, args.max_side, args.profile_repeats)
+        save_dir = args.save_images_dir / label if args.save_images_dir is not None else None
+        rows, inference_time = run_model(model, pair_list, args.device, args.max_side, args.profile_repeats, save_dir)
         for row, (hazy, _) in zip(rows, pair_list):
             stem = hazy.stem
             row["dataset"] = dataset

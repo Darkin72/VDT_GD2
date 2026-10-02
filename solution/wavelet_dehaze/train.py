@@ -77,7 +77,7 @@ class PairedImages(Dataset):
                 out = [torch.flip(x, (2,)) for x in out]
             if random.random() < 0.5:
                 out = [torch.flip(x, (1,)) for x in out]
-            k = random.randint(0, 3)
+            k = random.choice((0, 1, 3))  # 0, +90, or -90 degrees from the paper
             out = [torch.rot90(x, k, (1, 2)) for x in out]
             brightness, contrast = random.uniform(-0.1, 0.1), random.uniform(0.9, 1.1)
             out[0] = ((out[0] - 0.5) * contrast + 0.5 + brightness).clamp(0, 1)
@@ -259,7 +259,7 @@ def main() -> None:
                 torch.cuda.synchronize()
             transfer_end = time.perf_counter()
             if args.multi_scale:
-                scale = random.choice((64, 128, 256))
+                scale = (64, 128, 256)[(epoch * len(loader) + batch_index - 1) % 3]
                 hazy = torch.nn.functional.interpolate(hazy, (scale, scale), mode="bilinear", align_corners=False)
                 clear = torch.nn.functional.interpolate(clear, (scale, scale), mode="bilinear", align_corners=False)
             with torch.autocast(device_type=device, dtype=amp_dtype, enabled=amp_enabled):

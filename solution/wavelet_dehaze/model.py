@@ -123,7 +123,8 @@ class HazeWaveNet(nn.Module):
         self.high_projection = nn.ModuleList([nn.Conv2d(channels * 3, channels, 1) for _ in range(levels)])
         self.high = nn.ModuleList([VariationPath(channels) for _ in range(levels)])
         self.up = nn.ModuleList([nn.ConvTranspose2d(channels, channels, 2, stride=2) for _ in range(levels - 1)])
-        self.merge = nn.ModuleList([nn.Conv2d(channels * 2, channels, 3, padding=1) for _ in range(levels)])
+        self.merge_base = nn.Conv2d(channels * 2, channels, 3, padding=1)
+        self.merge_integration = nn.ModuleList([nn.Conv2d(channels * 3, channels, 3, padding=1) for _ in range(levels - 1)])
         self.region = nn.ModuleList([nn.Sequential(nn.Conv2d(channels, 1, 1), nn.Sigmoid()) for _ in range(levels)])
         self.refine = nn.ModuleList([nn.Sequential(nn.Conv2d(channels, channels, 3, padding=1), nn.ReLU(inplace=True)) for _ in range(levels)])
         self.out = nn.Sequential(nn.Conv2d(channels, channels, 3, padding=1, padding_mode="reflect"), nn.ReLU(inplace=True), nn.Conv2d(channels, 3, 3, padding=1, padding_mode="reflect"))
@@ -133,20 +134,27 @@ class HazeWaveNet(nn.Module):
         trans, trend, dark = dark_trend(x)
         guide = self.guide(dark)
         feat = self.stem(x)
+        low_features: list[Tensor] = []
         details: list[Tensor] = []
         for i in range(self.levels):
             ll, lh, hl, hh = haar_dwt(feat)
             feat = self.low[i](self.low_projection[i](ll), trans, trend, guide)
+            low_features.append(feat)
             high = self.high_projection[i](torch.cat((lh, hl, hh), dim=1))
             details.append(self.high[i](high))
-        # WIM: learnable coarse-to-fine reconstruction, retaining every detail scale.
+        # WIM: hierarchical fusion of every processed LL and detail scale.
+        feat = low_features[-1]
         for i in range(self.levels - 1, -1, -1):
-            if i < self.levels - 1:
+            if i == self.levels - 1:
+                residual = feat
+                fused = F.relu(self.merge_base(torch.cat((feat, details[i]), dim=1)), inplace=True)
+            else:
                 feat = self.up[i](feat)
-            if feat.shape[-2:] != details[i].shape[-2:]:
-                feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
-            fused = F.relu(self.merge[i](torch.cat((feat, details[i]), dim=1)), inplace=True)
-            feat = self.refine[i](fused * self.region[i](fused)) + feat
+                if feat.shape[-2:] != details[i].shape[-2:]:
+                    feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
+                residual = feat
+                fused = F.relu(self.merge_integration[i](torch.cat((feat, low_features[i], details[i]), dim=1)), inplace=True)
+            feat = self.refine[i](fused * self.region[i](fused)) + residual
         result = torch.tanh(self.out(feat)).add(1.0).mul(0.5)
         result = F.interpolate(result, size=original_size, mode="bilinear", align_corners=False)
         return result.clamp(0.0, 1.0)
@@ -171,19 +179,25 @@ class HazeWaveNet(nn.Module):
             start = now()
             t = now(); trans, trend, dark = dark_trend(x); guide = self.guide(dark); totals["dcp_fixed_prior"] += now() - t
             t = now(); feat = self.stem(x); totals["dwt_mfde_decomposition"] += now() - t
+            low_features = []
             details = []
             for i in range(self.levels):
                 t = now(); ll, lh, hl, hh = haar_dwt(feat); totals["dwt_mfde_decomposition"] += now() - t
-                t = now(); feat = self.low[i](self.low_projection[i](ll), trans, trend, guide); totals["low_frequency_fegg_fegb"] += now() - t
+                t = now(); feat = self.low[i](self.low_projection[i](ll), trans, trend, guide); low_features.append(feat); totals["low_frequency_fegg_fegb"] += now() - t
                 t = now(); high = self.high_projection[i](torch.cat((lh, hl, hh), dim=1)); details.append(self.high[i](high)); totals["high_frequency_vp_vr"] += now() - t
             t = now()
+            feat = low_features[-1]
             for i in range(self.levels - 1, -1, -1):
-                if i < self.levels - 1:
+                if i == self.levels - 1:
+                    residual = feat
+                    fused = F.relu(self.merge_base(torch.cat((feat, details[i]), dim=1)), inplace=True)
+                else:
                     feat = self.up[i](feat)
-                if feat.shape[-2:] != details[i].shape[-2:]:
-                    feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
-                fused = F.relu(self.merge[i](torch.cat((feat, details[i]), dim=1)), inplace=True)
-                feat = self.refine[i](fused * self.region[i](fused)) + feat
+                    if feat.shape[-2:] != details[i].shape[-2:]:
+                        feat = F.interpolate(feat, size=details[i].shape[-2:], mode="bilinear", align_corners=False)
+                    residual = feat
+                    fused = F.relu(self.merge_integration[i](torch.cat((feat, low_features[i], details[i]), dim=1)), inplace=True)
+                feat = self.refine[i](fused * self.region[i](fused)) + residual
             totals["wim_reconstruction"] += now() - t
             t = now()
             result = torch.tanh(self.out(feat)).add(1.0).mul(0.5)

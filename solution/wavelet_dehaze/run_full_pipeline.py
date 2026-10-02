@@ -21,8 +21,9 @@ def run_training(label, data, output, args, spec):
                "--scheduler", spec["scheduler"], "--min-lr", str(args.min_lr),
                "--step-size", str(args.step_size), "--patience", str(args.patience),
                "--num-workers", str(args.num_workers), "--prefetch-factor", str(args.prefetch_factor),
-               "--out", str(checkpoint), "--history", str(history)]
-    if spec.get("val_data"):
+               "--out", str(checkpoint), "--history", str(history), "--log-every", "1", "--metrics-every", "10",
+               "--cache-dir", str(args.output_dir / "cache" / slug), "--amp-dtype", args.amp_dtype]
+    if spec.get("val_data") and spec["val_data"].is_dir():
         command += ["--val-data", str(spec["val_data"])]
     else:
         command += ["--val-fraction", str(args.val_fraction)]
@@ -81,6 +82,7 @@ def main():
     parser.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--amp-dtype", choices=("float16", "bfloat16"), default="bfloat16")
     args = parser.parse_args()
     if args.device == "auto":
         import torch
@@ -101,7 +103,8 @@ def main():
     print("[3/3] Evaluating with detailed profiling", flush=True)
     command = [sys.executable, "-m", "solution.wavelet_dehaze.evaluate", "--data-root", str(args.eval_data_root),
                "--output-dir", str(args.output_dir / "reports"), "--device", args.device,
-               "--max-side", "1024", "--profile-repeats", str(args.profile_repeats)]
+               "--max-side", "1024", "--profile-repeats", str(args.profile_repeats),
+               "--save-images-dir", str(args.output_dir / "inference")]
     for option, label in (("--checkpoint-i-haze", "I-HAZE"), ("--checkpoint-o-hazy", "O-HAZY"),
                           ("--checkpoint-sots-its", "SOTS-ITS"), ("--checkpoint-sots-ots", "SOTS-OTS")):
         command += [option, str(checkpoints[label])]
@@ -111,5 +114,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
