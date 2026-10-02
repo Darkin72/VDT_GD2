@@ -19,8 +19,9 @@ from tqdm.auto import tqdm
 from .model import HazeWaveNet, haze_wavelet_loss
 
 class PairedImages(Dataset):
-    def __init__(self, root: Path, size: int = 256, augment: bool = False):
+    def __init__(self, root: Path, size: int = 256, augment: bool = False, cache_dir: Path | None = None):
         self.hazy, self.clear, self.size, self.augment = root / "hazy", root / "clear", size, augment
+        self.cache_dir = cache_dir
         if not self.hazy.is_dir() or not self.clear.is_dir():
             raise ValueError(f"Expected directories {self.hazy} and {self.clear}")
 
@@ -35,11 +36,24 @@ class PairedImages(Dataset):
                 self.items.append((hazy_path, clear_path))
         if not self.items:
             raise ValueError(f"No matching images in {self.hazy} and {self.clear}")
+        if self.cache_dir is not None:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def __len__(self):
         return len(self.items)
 
     def __getitem__(self, i):
+        cache_path = self.cache_dir / f"{i:06d}.pt" if self.cache_dir is not None else None
+        if cache_path is not None and cache_path.is_file():
+            arrays = torch.load(cache_path, map_location="cpu", weights_only=True)
+            out = [array.float().div_(255).permute(2, 0, 1) for array in arrays]
+        else:
+            out = self._load_images(i)
+            if cache_path is not None:
+                torch.save(tuple(x.permute(1, 2, 0).mul(255).round().to(torch.uint8) for x in out), cache_path)
+        return self._augment(out) if self.augment else tuple(out)
+
+    def _load_images(self, i):
         out = []
         for path in self.items[i]:
             with Image.open(path) as source:
@@ -54,6 +68,10 @@ class PairedImages(Dataset):
                     resized.close()
                 converted.close()
             out.append(torch.from_numpy(array).float().div(255).permute(2, 0, 1))
+        return tuple(out)
+
+    def _augment(self, out):
+        out = list(out)
         if self.augment:
             if random.random() < 0.5:
                 out = [torch.flip(x, (2,)) for x in out]
@@ -64,6 +82,19 @@ class PairedImages(Dataset):
             brightness, contrast = random.uniform(-0.1, 0.1), random.uniform(0.9, 1.1)
             out[0] = ((out[0] - 0.5) * contrast + 0.5 + brightness).clamp(0, 1)
         return tuple(out)
+
+    def prepare_cache(self) -> int:
+        if self.cache_dir is None:
+            return 0
+        missing = [i for i in range(len(self.items)) if not (self.cache_dir / f"{i:06d}.pt").is_file()]
+        for index in tqdm(missing, desc=f"Caching {self.size}x{self.size}", unit="image"):
+            self[index] if not self.augment else self._cache_one(index)
+        return len(missing)
+
+    def _cache_one(self, i):
+        cache_path = self.cache_dir / f"{i:06d}.pt"
+        out = self._load_images(i)
+        torch.save(tuple(x.permute(1, 2, 0).mul(255).round().to(torch.uint8) for x in out), cache_path)
 
 
 def image_metrics(pred: torch.Tensor, target: torch.Tensor) -> tuple[float, float]:
@@ -135,6 +166,8 @@ def main() -> None:
                     help="Validation directory containing hazy/ and clear/ (default: sibling val directory)")
     ap.add_argument("--history", type=Path, default=None,
                     help="Optional JSON file for per-epoch train/validation metrics")
+    ap.add_argument("--cache-dir", type=Path, default=None,
+                    help="Optional disk cache for resized uint8 image pairs")
     args = ap.parse_args()
     if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 1 or args.metrics_every < 1:
         ap.error("workers/profile-batches must be nonnegative and prefetch/log/metrics-every must be positive")
@@ -153,13 +186,17 @@ def main() -> None:
     print(f"device={device} | preparing dataset...", flush=True)
     if not 0.0 <= args.val_fraction < 1.0:
         raise ValueError("--val-fraction must be in [0, 1)")
-    train_base = PairedImages(args.data, args.size, args.augment)
+    cache_dir = args.cache_dir / f"{args.size}" if args.cache_dir is not None else None
+    train_base = PairedImages(args.data, args.size, args.augment, cache_dir)
     print(f"dataset indexed: {len(train_base)} paired images", flush=True)
+    if cache_dir is not None:
+        cached = train_base.prepare_cache()
+        print(f"resize cache ready: {cache_dir} ({cached} new pairs)", flush=True)
     val_root = args.val_data or args.data.parent / "val"
     if val_root.is_dir():
         train_dataset, val_dataset = train_base, PairedImages(val_root, args.size)
     elif args.val_fraction > 0:
-        val_base = PairedImages(args.data, args.size, augment=False)
+        val_base = PairedImages(args.data, args.size, augment=False, cache_dir=cache_dir)
         train_indices, val_indices = grouped_train_val_indices(train_base, args.val_fraction, args.split_seed)
         train_dataset, val_dataset = Subset(train_base, train_indices), Subset(val_base, val_indices)
     else:
