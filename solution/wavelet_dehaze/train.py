@@ -127,6 +127,7 @@ def main() -> None:
     ap.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision")
     ap.add_argument("--amp-dtype", choices=("float16", "bfloat16"), default="float16")
     ap.add_argument("--profile-batches", type=int, default=0, help="Synchronize and time the first N batches of epoch 1; 0 disables profiling")
+    ap.add_argument("--log-every", type=int, default=10, help="Print progress every N batches when tqdm is disabled")
     ap.add_argument("--val-fraction", type=float, default=0.0, help="Grouped validation fraction when --val-data is absent")
     ap.add_argument("--split-seed", type=int, default=42, help="Seed for the grouped train/validation split")
     ap.add_argument("--val-data", type=Path, default=None,
@@ -134,13 +135,16 @@ def main() -> None:
     ap.add_argument("--history", type=Path, default=None,
                     help="Optional JSON file for per-epoch train/validation metrics")
     args = ap.parse_args()
-    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0:
-        ap.error("workers/profile-batches must be nonnegative and prefetch-factor must be positive")
+    if args.num_workers < 0 or args.prefetch_factor < 1 or args.profile_batches < 0 or args.log_every < 1:
+        ap.error("workers/profile-batches must be nonnegative and prefetch/log-every must be positive")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     if device == "cuda":
         torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
     amp_enabled = args.amp and device == "cuda"
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bfloat16" else torch.float16
     if amp_enabled and amp_dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
@@ -176,6 +180,9 @@ def main() -> None:
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_kwargs) if val_dataset is not None else None
     print(f"train_images={len(train_dataset)} val_images={len(val_dataset) if val_dataset is not None else 0} train_batches={len(loader)} effective_batch={args.batch_size} micro_batch={micro_batch_size} accumulation_steps={accumulation_steps} workers={args.num_workers} prefetch={args.prefetch_factor if args.num_workers else 0}", flush=True)
     model = HazeWaveNet().to(device)
+    channels_last = device == "cuda"
+    if channels_last:
+        model = model.to(memory_format=torch.channels_last)
     if args.multi_gpu:
         if device != "cuda" or not torch.cuda.is_available() or torch.cuda.device_count() < 2:
             raise RuntimeError("--multi-gpu requires at least two visible CUDA devices")
@@ -207,6 +214,9 @@ def main() -> None:
             profiling = epoch == 0 and batch_index <= args.profile_batches
             batch_ready = time.perf_counter()
             hazy, clear = hazy.to(device, non_blocking=True), clear.to(device, non_blocking=True)
+            if channels_last:
+                hazy = hazy.contiguous(memory_format=torch.channels_last)
+                clear = clear.contiguous(memory_format=torch.channels_last)
             if profiling and device == "cuda":
                 torch.cuda.synchronize()
             transfer_end = time.perf_counter()
@@ -227,7 +237,7 @@ def main() -> None:
                 profile_rows.append((batch_ready - batch_end, transfer_end - batch_ready,
                                      time.perf_counter() - transfer_end))
             batch_bar.set_postfix(loss=f"{total / batches:.5f}", psnr=f"{total_psnr / batches:.2f}", ssim=f"{total_ssim / batches:.4f}")
-            if not show_tqdm and (batch_index == 1 or batch_index == len(loader)):
+            if not show_tqdm and (batch_index == 1 or batch_index % args.log_every == 0 or batch_index == len(loader)):
                 print(f"epoch {epoch + 1:03d}/{args.epochs} batch {batch_index}/{len(loader)} | loss={total / batches:.5f} PSNR={total_psnr / batches:.2f} SSIM={total_ssim / batches:.4f}", flush=True)
             batch_end = time.perf_counter()
         train_seconds = time.perf_counter() - epoch_start
