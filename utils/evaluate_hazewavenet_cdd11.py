@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -12,6 +13,8 @@ import torch
 from PIL import Image
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 from solution.wavelet_dehaze.model import HazeWaveNet
 
 EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
@@ -20,6 +23,7 @@ CHECKPOINTS = {
     "o_hazy": "haze_wavelet_o_hazy.pt",
     "sots_its": "haze_wavelet_sots_its.pt",
 }
+CATEGORIES = ("low", "haze", "rain", "snow", "low_haze", "low_rain", "low_snow", "haze_rain", "haze_snow", "low_haze_rain", "low_haze_snow")
 
 
 def image_key(path: Path) -> str:
@@ -32,6 +36,21 @@ def image_key(path: Path) -> str:
 
 
 def find_pairs(root: Path) -> list[tuple[str, Path, Path]]:
+    if (root / "clear").is_dir() and any((root / category).is_dir() for category in CATEGORIES):
+        clear_images = {path.stem: path for path in (root / "clear").iterdir() if path.is_file() and path.suffix.lower() in EXTENSIONS}
+        pairs = []
+        for category in CATEGORIES:
+            category_dir = root / category
+            if not category_dir.is_dir():
+                raise FileNotFoundError(f"CDD-11_test missing category: {category}")
+            for path in sorted(category_dir.iterdir()):
+                if path.is_file() and path.suffix.lower() in EXTENSIONS:
+                    if path.stem not in clear_images:
+                        raise FileNotFoundError(f"No clear image for {path}")
+                    pairs.append((f"{category}/{path.stem}", path, clear_images[path.stem]))
+        if not pairs:
+            raise RuntimeError(f"No images found below {root}")
+        return pairs
     hazy, clear = {}, {}
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in EXTENSIONS:
@@ -76,12 +95,13 @@ def run_checkpoint(label, checkpoint, pairs, output_dir, device, max_side):
         tensor = torch.from_numpy(hazy).permute(2, 0, 1).unsqueeze(0).to(device)
         with torch.inference_mode():
             result = model(tensor)[0].permute(1, 2, 0).mul(255).clamp(0, 255).byte().cpu().numpy()
-        image_dir = output_dir / "images" / label
-        image_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(result).save(image_dir / f"{image_id}.png")
+        image_path = output_dir / "images" / label / f"{image_id}.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(result).save(image_path)
         input_image = (hazy * 255).astype(np.uint8)
         rows.append({
             "checkpoint": label, "image_id": image_id,
+            "category": image_id.split("/")[0] if "/" in image_id else "haze",
             "hazy_path": str(hazy_path), "clear_path": str(clear_path),
             "input_psnr": peak_signal_noise_ratio(clear, input_image, data_range=255),
             "input_ssim": structural_similarity(clear, input_image, channel_axis=2, data_range=255),
