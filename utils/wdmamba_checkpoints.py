@@ -1,8 +1,13 @@
 """Download the WDMamba archive without treating CLI exit 0 as success."""
 
 from pathlib import Path
+import codecs
 import re
+import queue
 import subprocess
+import sys
+import threading
+import time
 import urllib.request
 import zipfile
 
@@ -12,8 +17,13 @@ SHARE_CODE = "98j9"
 ARCHIVE_NAME = "WDMamba_ckpts.zip"
 
 
-def run_pcs(pcs, *args, secrets=()):
-    """BaiduPCS-Go reports some application failures with a zero exit status."""
+def run_pcs(pcs, *args, secrets=(), timeout=900, heartbeat_interval=15):
+    """Stream BaiduPCS-Go output and keep it for success/error checks.
+
+    BaiduPCS-Go uses carriage returns for progress bars and can stay silent while
+    negotiating a download.  Reading chunks instead of waiting for ``communicate``
+    makes both cases visible in a notebook.
+    """
     command = [str(pcs), *map(str, args)]
     def redact(text):
         for secret in secrets:
@@ -21,14 +31,80 @@ def run_pcs(pcs, *args, secrets=()):
                 text = text.replace(secret, "[hidden]")
         return text
     print("$", redact(" ".join(command)), flush=True)
-    result = subprocess.run(
+    process = subprocess.Popen(
         command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", timeout=900,
+        stderr=subprocess.STDOUT, bufsize=0,
     )
-    output = redact(result.stdout)
-    print(output or "(BaiduPCS-Go produced no output)", flush=True)
-    if result.returncode:
-        raise RuntimeError(f"BaiduPCS-Go {args[0]} exited with {result.returncode}. See log above.")
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    started = time.monotonic()
+    last_activity = started
+    messages = queue.Queue()
+    chunks = []
+    pending = ""
+    # Keep enough text to redact a secret even when it spans pipe reads.
+    keep = max((len(secret) - 1 for secret in secrets if secret), default=0)
+
+    def read_output():
+        try:
+            while True:
+                data = process.stdout.read(8192)
+                if not data:
+                    break
+                messages.put(data)
+        except Exception as exc:
+            messages.put(exc)
+        finally:
+            messages.put(None)
+
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    try:
+        while True:
+            if time.monotonic() - started > timeout:
+                raise TimeoutError(f"BaiduPCS-Go {args[0]} exceeded {timeout}s; see live log above.")
+            try:
+                data = messages.get(timeout=0.2)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_activity >= heartbeat_interval:
+                    elapsed = int(now - started)
+                    print(
+                        f"\n[BaiduPCS-Go {args[0]}: {elapsed}s elapsed; waiting for more log output]",
+                        flush=True,
+                    )
+                    last_activity = now
+                continue
+            if data is None:
+                break
+            if isinstance(data, Exception):
+                raise data
+            last_activity = time.monotonic()
+            pending = redact(pending + decoder.decode(data))
+            emit_count = max(0, len(pending) - keep)
+            if emit_count:
+                text, pending = pending[:emit_count], pending[emit_count:]
+                chunks.append(text)
+                sys.stdout.write(text)
+                sys.stdout.flush()
+        tail = redact(pending + decoder.decode(b"", final=True))
+        if tail:
+            chunks.append(tail)
+            sys.stdout.write(tail)
+        process.wait(timeout=max(0.1, timeout - (time.monotonic() - started)))
+    finally:
+        # Interrupting a notebook cell must also stop the downloader it started.
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        reader.join(timeout=5)
+        process.stdout.close()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    output = "".join(chunks)
+    if process.returncode:
+        raise RuntimeError(f"BaiduPCS-Go {args[0]} exited with {process.returncode}. See log above.")
+    if not output:
+        print("(BaiduPCS-Go produced no output; heartbeat confirms whether it was still running.)", flush=True)
     return output
 
 
@@ -44,6 +120,11 @@ def download_baidu(pcs, destination):
         )
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
+    print(
+        "Starting Baidu transfer/download. The official archive is about 188 MB; "
+        "progress output and a heartbeat will appear below.",
+        flush=True,
+    )
     run_pcs(pcs, "config", "set", "-savedir", destination)
     # --download downloads only the transferred share. Flags must precede positional arguments.
     output = run_pcs(pcs, "transfer", "--download", SHARE_URL, SHARE_CODE)
