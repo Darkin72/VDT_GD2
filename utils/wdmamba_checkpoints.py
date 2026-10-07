@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import codecs
+import posixpath
 import re
 import queue
 import subprocess
@@ -128,11 +129,20 @@ def download_baidu(pcs, destination):
     run_pcs(pcs, "config", "set", "-savedir", destination)
     # --download downloads only the transferred share. Flags must precede positional arguments.
     output = run_pcs(pcs, "transfer", "--download", SHARE_URL, SHARE_CODE)
-    if "失败" in output or "分享链接转存到网盘成功" not in output:
+    if "文件重复" in output:
+        # Transfer saves the share in BaiduPCS-Go's remote working directory.
+        # A previous run may have saved it there without completing the download.
+        print("Archive already exists in Baidu Cloud; downloading that file directly.", flush=True)
+        workdir_output = run_pcs(pcs, "pwd")
+        workdirs = [line.strip() for line in workdir_output.splitlines() if line.strip().startswith("/")]
+        if len(workdirs) != 1:
+            raise RuntimeError("Cannot determine Baidu remote working directory. See the pwd log above.")
+        remote_archive = posixpath.join(workdirs[0], ARCHIVE_NAME)
+        run_pcs(pcs, "download", "--saveto", destination, remote_archive)
+    elif "失败" in output or "分享链接转存到网盘成功" not in output:
         raise RuntimeError(
             "Baidu did not confirm a successful transfer. See BaiduPCS-Go log above. "
-            "If the file already exists in your account, download that archive in the browser "
-            "and use WDMAMBA_SOURCE='local'/'upload'."
+            "Use WDMAMBA_SOURCE='local'/'upload' if Baidu requests browser verification."
         )
     archives = sorted(destination.rglob(ARCHIVE_NAME))
     if not archives or any(not zipfile.is_zipfile(path) for path in archives):
