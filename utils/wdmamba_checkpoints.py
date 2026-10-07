@@ -138,7 +138,7 @@ def download_baidu(pcs, destination):
         if len(workdirs) != 1:
             raise RuntimeError("Cannot determine Baidu remote working directory. See the pwd log above.")
         remote_archive = posixpath.join(workdirs[0], ARCHIVE_NAME)
-        run_pcs(pcs, "download", remote_archive, "--saveto", destination, "--ow")
+        run_pcs(pcs, "download", "--saveto", destination, "--ow", remote_archive)
     elif "失败" in output or "分享链接转存到网盘成功" not in output:
         raise RuntimeError(
             "Baidu did not confirm a successful transfer. See BaiduPCS-Go log above. "
