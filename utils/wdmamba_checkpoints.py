@@ -18,7 +18,7 @@ SHARE_CODE = "98j9"
 ARCHIVE_NAME = "WDMamba_ckpts.zip"
 
 
-def run_pcs(pcs, *args, secrets=(), timeout=900, heartbeat_interval=15):
+def run_pcs(pcs, *args, secrets=(), timeout=9000, heartbeat_interval=15):
     """Stream BaiduPCS-Go output and keep it for success/error checks.
 
     BaiduPCS-Go uses carriage returns for progress bars and can stay silent while
