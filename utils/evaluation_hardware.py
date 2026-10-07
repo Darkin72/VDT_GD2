@@ -2,9 +2,13 @@
 import json
 import os
 import platform
-import resource
 import time
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows does not provide the POSIX resource module.
+    resource = None
 
 import torch
 from openpyxl import Workbook
@@ -12,7 +16,14 @@ from openpyxl import Workbook
 
 def write_hardware_report(output_dir, solution, images, total_seconds, inference_seconds):
     output_dir = Path(output_dir)
-    process_peak_gb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 ** 2)
+    if resource is not None:
+        process_peak_gb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 ** 2)
+    else:
+        try:
+            import psutil
+            process_peak_gb = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 3)
+        except ImportError:
+            process_peak_gb = 0
     hardware = {
         "RAM peak (GB)": round(process_peak_gb, 3),
         "FPS trung bình toàn bộ quá trình": images / total_seconds if total_seconds else 0,

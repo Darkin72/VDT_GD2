@@ -69,6 +69,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate DehazeDDPM-NH on VDT-GD2 datasets.")
     parser.add_argument("--data-root", type=Path, default=root / "dataset")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
+    parser.add_argument("--dataset", choices=("all", *DATASET_LOADERS), default="all", help="Dataset cần đánh giá; mặc định chạy tất cả.")
     parser.add_argument("--config", type=Path, default=DDPM_ROOT / "config" / "test_NH.json")
     parser.add_argument("--checkpoint", type=Path, default=DDPM_ROOT / "Diffusion_trained_pth" / "NH_I230000_E4600_gen.pth")
     parser.add_argument("--prenet", type=Path, default=DDPM_ROOT / "pretrained_PreNet_pth" / "NH_net_g_80000.pth")
@@ -90,7 +91,8 @@ def main():
     device = torch.device(args.device)
     rows = []
     pairs = []
-    for dataset in DATASET_LOADERS:
+    selected_datasets = list(DATASET_LOADERS) if args.dataset == "all" else [args.dataset]
+    for dataset in selected_datasets:
         values = DATASET_LOADERS[dataset](args.data_root, args.split)
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
     for dataset, image_id, hazy_path, clear_path in pairs:

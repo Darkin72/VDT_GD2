@@ -70,6 +70,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "dataset")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
+    parser.add_argument("--dataset", choices=("all", *DATASET_LOADERS), default="all", help="Dataset cần đánh giá; mặc định chạy tất cả.")
     parser.add_argument("--size", choices=("B", "L"), default="B")
     parser.add_argument("--checkpoint-dir", type=Path, default=PROJECT_ROOT / "mb-taylorformerv2")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -87,14 +88,15 @@ def main():
     image_dir = args.output_dir / "images"
     image_dir.mkdir(exist_ok=True)
     pairs = []
-    for dataset in DATASET_LOADERS:
+    selected_datasets = list(DATASET_LOADERS) if args.dataset == "all" else [args.dataset]
+    for dataset in selected_datasets:
         values = DATASET_LOADERS[dataset](args.data_root, args.split)
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
     rows = []
     models = {}
     checkpoints = checkpoint_map(args)
     inference_start = time.perf_counter()
-    for dataset_name in DATASET_LOADERS:
+    for dataset_name in selected_datasets:
         dataset_pairs = [item for item in pairs if item[0] == dataset_name]
         for offset in range(0, len(dataset_pairs), args.batch_size):
             batch_pairs = dataset_pairs[offset:offset + args.batch_size]
