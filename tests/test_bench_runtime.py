@@ -60,7 +60,9 @@ class BenchRuntimeTests(unittest.TestCase):
             "WDMAMBA_PAIRED_ROOTS": {}, "WDMAMBA_LIMIT": 1, "WDMAMBA_MAX_SIDE": 512,
             "SPLIT": "train", "DEVICE": "cuda", "SAVE_IMAGES": True,
             "wdmamba_checkpoint_for": Mock(return_value=checkpoint),
-            "validate_dataset": Mock(), "run_command": commands,
+            # Simulate an old helper still present in a live notebook kernel.
+            "validate_dataset": lambda dataset: None,
+            "validate_wdmamba_dataset": Mock(), "run_command": commands,
         }
         run = notebook_function("run_wdmamba_dataset", namespace)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -74,7 +76,7 @@ class BenchRuntimeTests(unittest.TestCase):
         self.assertEqual(inference[inference.index("--split") + 1], "test")
         self.assertEqual(inference[inference.index("--limit") + 1], 0)
         self.assertEqual(inference[inference.index("--max-side") + 1], 0)
-        namespace["validate_dataset"].assert_called_once_with("i-haze", split="test")
+        namespace["validate_wdmamba_dataset"].assert_called_once_with("i-haze", "test")
         self.assertEqual(namespace["SPLIT"], "train")
         self.assertEqual(namespace["WDMAMBA_LIMIT"], 1)
         # A failed preflight must prevent any checkpoint inference.
@@ -83,6 +85,23 @@ class BenchRuntimeTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
             run("i-haze", allow_cross=True, split="test", limit=0, max_side=0)
         self.assertEqual(commands.call_count, 1)
+
+    def test_wdmamba_validation_uses_requested_split_in_existing_kernel(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)
+            root = data / "I-HAZE" / "test"
+            for name in ("clear", "hazy"):
+                folder = root / name
+                folder.mkdir(parents=True)
+                (folder / "one.png").touch()
+            validate = notebook_function("validate_wdmamba_dataset", {
+                "DATA_ROOT": data, "SPLIT": "train",
+                "DATASET_LAYOUT": {"i-haze": data / "I-HAZE" / "train"},
+            })
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(validate("i-haze", "test"), root)
+                with self.assertRaisesRegex(FileNotFoundError, "Missing i-haze train"):
+                    validate("i-haze", "train")
 
     def test_test_suite_runs_all_images_and_packages_twenty_reports(self):
         datasets = ["i-haze", "o-hazy", "sots-indoor", "sots-outdoor", "cdd11"]
