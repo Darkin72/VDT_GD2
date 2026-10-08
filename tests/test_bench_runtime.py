@@ -143,6 +143,46 @@ class BenchRuntimeTests(unittest.TestCase):
                     expected = {f"{dataset}/checkpoint/{name}" for dataset in completed for name in names}
                     self.assertEqual(set(archive.namelist()), expected | {"reports.json"})
 
+    def test_resume_keeps_four_completed_datasets_and_runs_cdd11(self):
+        datasets = ["i-haze", "o-hazy", "sots-indoor", "sots-outdoor", "cdd11"]
+        names = ["wdmamba_dataset.xlsx", "wdmamba_domain.xlsx", "wdmamba_fog.xlsx", "hardware.xlsx"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            checkpoint = root / "checkpoint.pth"
+
+            def write_reports(dataset, **kwargs):
+                output = root / "wdmamba" / dataset / checkpoint.stem
+                output.mkdir(parents=True, exist_ok=True)
+                for name in names:
+                    (output / name).write_bytes(b"report")
+                (output / "run_config.json").write_text(json.dumps({
+                    "dataset": dataset, "checkpoint": str(checkpoint), "split": "test",
+                    "limit": 0, "max_side": 512, "images": 1,
+                }), encoding="utf-8")
+                return output
+
+            for dataset in datasets[:-1]:
+                write_reports(dataset)
+            inference = Mock(side_effect=write_reports)
+            run = notebook_function("run_wdmamba_test_suite", {
+                "OUTPUT_ROOT": root, "run_wdmamba_dataset": inference, "subprocess": subprocess,
+                "wdmamba_checkpoint_for": Mock(return_value=checkpoint),
+            })
+            with contextlib.redirect_stdout(io.StringIO()):
+                zip_path = run(datasets, max_side=512, reuse_completed=True)
+            inference.assert_called_once_with("cdd11", allow_cross=True, split="test", limit=0, max_side=512)
+            with zipfile.ZipFile(zip_path) as archive:
+                self.assertEqual(len([name for name in archive.namelist() if name.endswith(".xlsx")]), 20)
+            # Smoke-test results must not be reused as complete test results.
+            config_path = root / "wdmamba" / "i-haze" / checkpoint.stem / "run_config.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["limit"] = 1
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            inference.reset_mock()
+            with contextlib.redirect_stdout(io.StringIO()):
+                run(datasets, max_side=512, reuse_completed=True)
+            inference.assert_called_once_with("i-haze", allow_cross=True, split="test", limit=0, max_side=512)
+
 
 if __name__ == "__main__":
     unittest.main()
