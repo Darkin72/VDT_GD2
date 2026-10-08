@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import Mock
 
 
@@ -57,25 +58,71 @@ class BenchRuntimeTests(unittest.TestCase):
             "WDMAMBA_PYTHON": "/dedicated-runtime/bin/python", "WDMAMBA_WEIGHT_FILES": {},
             "WDMAMBA_CROSS_DATASET_WEIGHTS": {"i-haze": "nh-haze"},
             "WDMAMBA_PAIRED_ROOTS": {}, "WDMAMBA_LIMIT": 1, "WDMAMBA_MAX_SIDE": 512,
-            "SPLIT": "test", "DEVICE": "cuda", "SAVE_IMAGES": True,
+            "SPLIT": "train", "DEVICE": "cuda", "SAVE_IMAGES": True,
             "wdmamba_checkpoint_for": Mock(return_value=checkpoint),
             "validate_dataset": Mock(), "run_command": commands,
         }
         run = notebook_function("run_wdmamba_dataset", namespace)
         with contextlib.redirect_stdout(io.StringIO()):
-            run("i-haze", allow_cross=True)
+            run("i-haze", allow_cross=True, split="test", limit=0, max_side=0)
         check, inference = [call.args[0] for call in commands.call_args_list]
         self.assertEqual(check[0], namespace["WDMAMBA_PYTHON"])
         self.assertIn("--check-environment", check)
         self.assertEqual(inference[0], namespace["WDMAMBA_PYTHON"])
         self.assertIn("--save-images", inference)
         self.assertIn("cross-dataset", inference)
+        self.assertEqual(inference[inference.index("--split") + 1], "test")
+        self.assertEqual(inference[inference.index("--limit") + 1], 0)
+        self.assertEqual(inference[inference.index("--max-side") + 1], 0)
+        namespace["validate_dataset"].assert_called_once_with("i-haze", split="test")
+        self.assertEqual(namespace["SPLIT"], "train")
+        self.assertEqual(namespace["WDMAMBA_LIMIT"], 1)
         # A failed preflight must prevent any checkpoint inference.
         commands.reset_mock()
         commands.side_effect = subprocess.CalledProcessError(1, check)
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
-            run("i-haze", allow_cross=True)
+            run("i-haze", allow_cross=True, split="test", limit=0, max_side=0)
         self.assertEqual(commands.call_count, 1)
+
+    def test_test_suite_runs_all_images_and_packages_twenty_reports(self):
+        datasets = ["i-haze", "o-hazy", "sots-indoor", "sots-outdoor", "cdd11"]
+        names = ["wdmamba_dataset.xlsx", "wdmamba_domain.xlsx", "wdmamba_fog.xlsx", "hardware.xlsx"]
+        for failed_dataset in (None, "o-hazy"):
+            with self.subTest(failed_dataset=failed_dataset), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+
+                def infer(dataset, **kwargs):
+                    if dataset == failed_dataset:
+                        raise subprocess.CalledProcessError(1, ["inference", dataset])
+                    output = root / "wdmamba" / dataset / "checkpoint"
+                    output.mkdir(parents=True)
+                    for name in names:
+                        (output / name).write_bytes(b"report")
+                    return output
+
+                inference = Mock(side_effect=infer)
+                run = notebook_function("run_wdmamba_test_suite", {
+                    "OUTPUT_ROOT": root, "run_wdmamba_dataset": inference, "subprocess": subprocess,
+                })
+                with contextlib.redirect_stdout(io.StringIO()):
+                    if failed_dataset:
+                        with self.assertRaisesRegex(RuntimeError, "Incomplete WDMamba test suite"):
+                            run(datasets, max_side=512)
+                    else:
+                        run(datasets, max_side=512)
+                self.assertEqual([call.args[0] for call in inference.call_args_list], datasets)
+                for call in inference.call_args_list:
+                    self.assertEqual(call.kwargs, {
+                        "allow_cross": True, "split": "test", "limit": 0, "max_side": 512,
+                    })
+                suite = root / "wdmamba" / "test_suite"
+                index = json.loads((suite / "reports.json").read_text(encoding="utf-8"))
+                completed = [dataset for dataset in datasets if dataset != failed_dataset]
+                self.assertEqual(set(index["reports"]), set(completed))
+                self.assertEqual(set(index["failures"]), {failed_dataset} if failed_dataset else set())
+                with zipfile.ZipFile(suite / "wdmamba_test_reports.zip") as archive:
+                    expected = {f"{dataset}/checkpoint/{name}" for dataset in completed for name in names}
+                    self.assertEqual(set(archive.namelist()), expected | {"reports.json"})
 
 
 if __name__ == "__main__":
