@@ -1,10 +1,13 @@
-"""Evaluate WDMamba on one VDT-GD2 dataset or CDD-11."""
+"""Evaluate WDMamba on a standard benchmark, official paired test split, or CDD-11."""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import importlib.machinery
+import importlib.util
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -22,7 +25,6 @@ from evaluate import (  # noqa: E402
     DATASET_LOADERS,
     calculate_psnr,
     calculate_ssim,
-    infer_data_origin,
     infer_fog_level,
     resize_pair,
 )
@@ -62,21 +64,82 @@ def find_cdd11_pairs(root: Path):
     return pairs
 
 
-def load_model(checkpoint: Path, device: str):
+def infer_detail_blocks(state):
+    """Infer the 4/6-block DE architecture from weights, even after renaming."""
+    groups = {group: set() for group in (1, 2, 3)}
+    for key in state:
+        match = re.fullmatch(r"restoration_network\.DE\.g([123])\.gp\.(\d+)\.conv1\.weight", key)
+        if match:
+            groups[int(match[1])].add(int(match[2]))
+    counts = {len(indices) for indices in groups.values()}
+    if len(counts) != 1 or next(iter(counts)) not in (4, 6):
+        raise ValueError(f"Cannot infer a supported WDMamba DE architecture: {groups}")
+    blocks = next(iter(counts))
+    if any(indices != set(range(blocks)) for indices in groups.values()):
+        raise ValueError("WDMamba checkpoint has incomplete DE block indices")
+    return blocks
+
+
+def load_model(checkpoint: Path, device: str, de_blocks=None):
+    # The upstream package __init__ imports its training stack (losses, LPIPS,
+    # dataloaders, etc.). In this inference subprocess, load only architecture
+    # packages from the local checkout and avoid those training dependencies.
+    for name, directory in (
+        ("basicsr", WDMAMBA_ROOT / "basicsr"),
+        ("basicsr.utils", WDMAMBA_ROOT / "basicsr" / "utils"),
+        ("basicsr.archs", WDMAMBA_ROOT / "basicsr" / "archs"),
+    ):
+        if name not in sys.modules:
+            spec = importlib.machinery.ModuleSpec(name, loader=None, is_package=True)
+            spec.submodule_search_locations = [str(directory)]
+            sys.modules[name] = importlib.util.module_from_spec(spec)
     try:
         from basicsr.archs.wavemamba_arch import WaveMamba
+        from basicsr.archs.detail_enhance_net import DENet
     except ImportError as exc:
         raise RuntimeError(
             "WDMamba dependencies are missing. Install solution/WDMamba/requirements.txt "
-            "and the compatible mamba_ssm/causal_conv1d packages."
+            "plus pytorch-wavelets, timm, einops and compatible mamba_ssm/causal_conv1d packages."
         ) from exc
-    model = WaveMamba(in_chn=3, wf=16, n_l_blocks=[1, 2, 2, 4], ffn_scale=2.0)
-    state = torch.load(checkpoint, map_location=device, weights_only=False)
+    state = torch.load(checkpoint, map_location="cpu", weights_only=False)
     if isinstance(state, dict):
         state = state.get("params", state.get("state_dict", state.get("model", state)))
     state = {key.removeprefix("module."): value for key, value in state.items()}
+    detected_blocks = infer_detail_blocks(state)
+    if de_blocks is not None and de_blocks != detected_blocks:
+        raise ValueError(f"--de-blocks={de_blocks} conflicts with checkpoint architecture ({detected_blocks})")
+    print(f"WDMamba detail-enhancement blocks: {detected_blocks}", flush=True)
+    model = WaveMamba(in_chn=3, wf=16, n_l_blocks=[1, 2, 2, 4], ffn_scale=2.0)
+    if detected_blocks == 4:
+        model.restoration_network.DE = DENet(3, 4)
     model.load_state_dict(state, strict=True)
+    model.de_blocks = detected_blocks
     return model.to(device).eval()
+
+
+def find_paired_images(root, dataset):
+    """Official paired layouts use hazy + GT/gt; normalized copies use clear."""
+    hazy_dir = root / "hazy"
+    clear_dir = next((root / name for name in ("clear", "GT", "gt") if (root / name).is_dir()), None)
+    if not hazy_dir.is_dir() or clear_dir is None:
+        raise FileNotFoundError(f"Expected {root}/hazy and clear, GT, or gt")
+    clear = {p.stem.lower(): p for p in clear_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS}
+    pairs = []
+    for hazy in sorted(hazy_dir.iterdir()):
+        if not hazy.is_file() or hazy.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        stem = hazy.stem.lower()
+        if dataset in {"nh-haze", "dense-haze", "o-hazy"}:
+            candidates = [stem.replace("_hazy", "_gt"), stem.removesuffix("_hazy"), stem]
+        elif dataset == "haze4k":
+            candidates = [stem.split("_")[0], stem]
+        else:
+            candidates = [stem]
+        match = next((clear[name] for name in candidates if name in clear), None)
+        if match is None:
+            raise FileNotFoundError(f"No GT image for {hazy}")
+        pairs.append((dataset, hazy.stem, hazy, match))
+    return pairs
 
 
 def infer_one(model, image, device, max_side):
@@ -96,10 +159,16 @@ def infer_one(model, image, device, max_side):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "dataset")
-    parser.add_argument("--dataset", choices=("i-haze", "o-hazy", "sots-indoor", "sots-outdoor", "cdd11"), default="i-haze")
+    parser.add_argument("--dataset", choices=("i-haze", "o-hazy", "sots-indoor", "sots-outdoor", "cdd11",
+                                              "nh-haze", "dense-haze", "haze4k", "reside6k"), default="i-haze")
+    parser.add_argument("--paired-root", type=Path, help="Explicit test folder with hazy and GT/gt/clear")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--cdd11-test", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--de-blocks", type=int, choices=(4, 6), default=None,
+                        help="Validate DE block count; default is inferred from checkpoint tensors")
+    parser.add_argument("--checkpoint-training-dataset", default="unspecified")
+    parser.add_argument("--evaluation-protocol", choices=("matched-dataset", "cross-dataset"), default=None)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=512)
     parser.add_argument("--limit", type=int, default=0)
@@ -118,7 +187,12 @@ def main():
         raw_pairs = find_cdd11_pairs(args.cdd11_test)
         pairs = [(args.dataset, image_id, hazy, clear, category) for image_id, hazy, clear, category in raw_pairs]
     else:
-        values = DATASET_LOADERS[args.dataset](args.data_root, args.split)
+        if args.paired_root is not None:
+            values = find_paired_images(args.paired_root, args.dataset)
+        elif args.dataset in DATASET_LOADERS:
+            values = DATASET_LOADERS[args.dataset](args.data_root, args.split)
+        else:
+            raise ValueError(f"--paired-root is required for {args.dataset}; point it to the test split")
         values = values[:args.limit] if args.limit > 0 else values
         pairs = [(dataset, image_id, hazy, clear, infer_fog_level(dataset, image_id)) for dataset, image_id, hazy, clear in values]
     if args.limit > 0 and args.dataset == "cdd11":
@@ -129,7 +203,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if args.save_images:
         (args.output_dir / "images").mkdir(parents=True, exist_ok=True)
-    model = load_model(args.checkpoint, args.device)
+    model = load_model(args.checkpoint, args.device, args.de_blocks)
     rows = []
     started = time.perf_counter()
     for index, (dataset, image_id, hazy_path, clear_path, category) in enumerate(pairs, 1):
@@ -168,6 +242,11 @@ def main():
         "mean_output_psnr": float(np.mean([row["output_psnr"] for row in rows])),
         "mean_output_ssim": float(np.mean([row["output_ssim"] for row in rows])),
         "checkpoint": str(args.checkpoint), "device": args.device,
+        "de_blocks": model.de_blocks,
+        "checkpoint_training_dataset": args.checkpoint_training_dataset,
+        "evaluation_protocol": args.evaluation_protocol,
+        "split": args.split, "max_side": args.max_side, "limit": args.limit,
+        "paired_root": str(args.paired_root) if args.paired_root else None,
     }
     (args.output_dir / "run_config.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
