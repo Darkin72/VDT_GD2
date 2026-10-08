@@ -81,7 +81,7 @@ def infer_detail_blocks(state):
     return blocks
 
 
-def load_model(checkpoint: Path, device: str, de_blocks=None):
+def import_architecture():
     # The upstream package __init__ imports its training stack (losses, LPIPS,
     # dataloaders, etc.). In this inference subprocess, load only architecture
     # packages from the local checkout and avoid those training dependencies.
@@ -97,11 +97,38 @@ def load_model(checkpoint: Path, device: str, de_blocks=None):
     try:
         from basicsr.archs.wavemamba_arch import WaveMamba
         from basicsr.archs.detail_enhance_net import DENet
-    except ImportError as exc:
+    except Exception as exc:
         raise RuntimeError(
-            "WDMamba dependencies are missing. Install solution/WDMamba/requirements.txt "
-            "plus pytorch-wavelets, timm, einops and compatible mamba_ssm/causal_conv1d packages."
+            "Cannot import the WDMamba architecture. Run the WDMamba runtime setup cell "
+            "in Bench.ipynb to install compatible CUDA extensions in a Python 3.11 environment. "
+            f"Current interpreter: {sys.executable} (Python {sys.version.split()[0]}). "
+            f"Original error: {type(exc).__name__}: {exc}"
         ) from exc
+    return WaveMamba, DENet
+
+
+def check_environment(device):
+    print(f"Python: {sys.version.split()[0]} ({sys.executable})", flush=True)
+    print(f"PyTorch: {torch.__version__}; CUDA build: {torch.version.cuda}; device: {device}", flush=True)
+    if torch.device(device).type != "cuda":
+        raise RuntimeError("The upstream WDMamba selective-scan extension requires a CUDA GPU. Select a GPU runtime.")
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is unavailable in this interpreter. Select a GPU runtime and run the WDMamba runtime setup cell.")
+    import_architecture()
+    # Importing a wheel alone does not prove its CUDA kernels can run on this GPU.
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
+    with torch.inference_mode():
+        u = torch.zeros(1, 4, 16, device=device)
+        a = -torch.ones(4, 16, device=device)
+        bc = torch.ones(1, 16, 16, device=device)
+        result = selective_scan_fn(u, torch.ones_like(u), a, bc, bc, delta_softplus=True)
+        if not torch.isfinite(result).all().item():
+            raise RuntimeError("WDMamba selective-scan CUDA check produced non-finite values")
+    print("WDMamba architecture imports and selective-scan CUDA check: OK", flush=True)
+
+
+def load_model(checkpoint: Path, device: str, de_blocks=None):
+    WaveMamba, DENet = import_architecture()
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
     if isinstance(state, dict):
         state = state.get("params", state.get("state_dict", state.get("model", state)))
@@ -165,7 +192,8 @@ def parse_args():
     parser.add_argument("--paired-root", type=Path, help="Explicit test folder with hazy and GT/gt/clear")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--cdd11-test", type=Path, default=None)
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--check-environment", action="store_true", help="Check architecture imports and run a small CUDA kernel, without weights or data")
     parser.add_argument("--de-blocks", type=int, choices=(4, 6), default=None,
                         help="Validate DE block count; default is inferred from checkpoint tensors")
     parser.add_argument("--checkpoint-training-dataset", default="unspecified")
@@ -173,13 +201,19 @@ def parse_args():
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=512)
     parser.add_argument("--limit", type=int, default=0)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--save-images", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.check_environment and (args.checkpoint is None or args.output_dir is None):
+        parser.error("--checkpoint and --output-dir are required for inference")
+    return args
 
 
 def main():
     args = parse_args()
+    if args.check_environment:
+        check_environment(args.device)
+        return
     if not args.checkpoint.is_file():
         raise FileNotFoundError(f"Missing WDMamba checkpoint: {args.checkpoint}")
     if args.dataset == "cdd11":

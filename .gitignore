@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+.venvs/
 
 paper/
 BM.01.Phieu giao nhiem vu cong viec cho nhan su tap nghe.pdf

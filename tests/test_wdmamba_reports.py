@@ -21,6 +21,19 @@ import evaluate_wdmamba as evaluator
 
 
 class WDMambaReportTests(unittest.TestCase):
+    def test_environment_check_does_not_require_weights_or_data(self):
+        with patch.object(sys, "argv", ["evaluate_wdmamba.py", "--check-environment"]), patch.object(
+            evaluator, "check_environment"
+        ) as check, patch.object(evaluator, "load_model") as load:
+            evaluator.main()
+        check.assert_called_once()
+        load.assert_not_called()
+
+    def test_environment_check_explains_missing_gpu(self):
+        with patch.object(torch.cuda, "is_available", return_value=False), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "CUDA is unavailable"):
+                evaluator.check_environment("cuda")
+
     def test_four_workbooks_for_every_supported_dataset(self):
         cases = (
             ("i-haze", "I-HAZE", "ih01_hazy", "ih01", "real", "I-HAZE"),
