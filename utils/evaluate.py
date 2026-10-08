@@ -370,7 +370,10 @@ def summarize(rows):
 
 
 def infer_data_origin(dataset_name):
-    return "synthetic" if dataset_name.startswith("sots-") else "real"
+    return "synthetic" if (
+        dataset_name.startswith("sots-")
+        or dataset_name in {"haze4k", "reside6k", "cdd11"}
+    ) else "real"
 
 
 def infer_fog_level(dataset_name, image_id):

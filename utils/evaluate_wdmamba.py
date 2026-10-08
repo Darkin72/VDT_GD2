@@ -25,6 +25,7 @@ from evaluate import (  # noqa: E402
     DATASET_LOADERS,
     calculate_psnr,
     calculate_ssim,
+    infer_data_origin,
     infer_fog_level,
     resize_pair,
 )
@@ -219,6 +220,8 @@ def main():
         runtime_ms = (time.perf_counter() - infer_started) * 1000
         row = {
             "dataset": dataset, "category": category, "image_id": image_id,
+            "data_origin": infer_data_origin(dataset),
+            "fog_level": infer_fog_level(dataset, image_id),
             "input_psnr": calculate_psnr(hazy, clear), "input_ssim": calculate_ssim(hazy, clear),
             "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear),
             "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear),
@@ -235,8 +238,9 @@ def main():
         writer = csv.DictWriter(file, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    export_excel_reports("WDMamba", rows, args.output_dir)
+    excel_paths = export_excel_reports("WDMamba", rows, args.output_dir)
     write_hardware_report(args.output_dir, "WDMamba", len(rows), time.perf_counter() - started, sum(row["runtime_ms"] for row in rows) / 1000)
+    excel_paths["hardware"] = args.output_dir / "hardware.xlsx"
     summary = {
         "model": "WDMamba", "dataset": args.dataset, "images": len(rows),
         "mean_output_psnr": float(np.mean([row["output_psnr"] for row in rows])),
@@ -247,9 +251,13 @@ def main():
         "evaluation_protocol": args.evaluation_protocol,
         "split": args.split, "max_side": args.max_side, "limit": args.limit,
         "paired_root": str(args.paired_root) if args.paired_root else None,
+        "excel_reports": {key: str(path) for key, path in excel_paths.items()},
     }
     (args.output_dir / "run_config.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
+    print("Excel reports:", flush=True)
+    for path in excel_paths.values():
+        print(" -", path.resolve(), flush=True)
 
 
 if __name__ == "__main__":

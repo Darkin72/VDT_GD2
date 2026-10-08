@@ -83,6 +83,19 @@ def export_excel_reports(solution_name, rows, output_dir):
     for key, label in DATASETS:
         dataset_groups.append((label, summarize([row for row in rows if row["dataset"] == key])))
 
+    # Preserve the standard benchmark columns, and include any additional
+    # datasets actually evaluated instead of silently dropping their results.
+    standard_datasets = {key for key, _ in DATASETS}
+    extra_labels = {
+        "nh-haze": "NH-HAZE", "dense-haze": "Dense-Haze",
+        "haze4k": "Haze4K", "reside6k": "RESIDE-6K", "cdd11": "CDD-11",
+    }
+    for key in sorted({row["dataset"] for row in rows} - standard_datasets):
+        dataset_groups.append((
+            extra_labels.get(key, key),
+            summarize([row for row in rows if row["dataset"] == key]),
+        ))
+
     origin_groups = []
     for key, label in (("real", "Real"), ("synthetic", "Synthetic")):
         origin_groups.append((label, summarize([row for row in rows if row["data_origin"] == key])))
