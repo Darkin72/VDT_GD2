@@ -54,14 +54,14 @@ def load_model(args):
     return model
 
 
-def infer_one(model, image, device, image_size):
-    image = cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_AREA)
-    tensor = torch.from_numpy(image.astype(np.float32) / 127.5 - 1.0).permute(2, 0, 1).unsqueeze(0)
+def infer_batch(model, images, device, image_size):
+    resized = [cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_AREA) for image in images]
+    tensor = torch.from_numpy(np.stack([image.astype(np.float32) / 127.5 - 1.0 for image in resized])).permute(0, 3, 1, 2)
     with torch.inference_mode():
         model.feed_data({"SR": tensor.to(device), "HR": tensor.to(device)})
         model.test(continous=True)
-        output = model.get_current_visuals()["Out"][-1].permute(1, 2, 0).numpy()
-    return (output.clip(0, 1) * 255).round().astype(np.uint8)
+        output = model.get_current_visuals()["Out"]
+    return [(item.permute(1, 2, 0).numpy().clip(0, 1) * 255).round().astype(np.uint8) for item in output]
 
 
 def parse_args():
@@ -75,6 +75,7 @@ def parse_args():
     parser.add_argument("--prenet", type=Path, default=DDPM_ROOT / "pretrained_PreNet_pth" / "NH_net_g_80000.pth")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--image-size", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=root / "utils" / "evaluation_results" / "dehazeddpm_nh")
     parser.add_argument("--save-images", action="store_true")
@@ -83,6 +84,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.batch_size < 1:
+        raise ValueError("--batch-size must be positive")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "images").mkdir(parents=True, exist_ok=True)
     if args.device.startswith("cuda"):
@@ -95,29 +98,33 @@ def main():
     for dataset in selected_datasets:
         values = DATASET_LOADERS[dataset](args.data_root, args.split)
         pairs.extend(values[:args.limit] if args.limit > 0 else values)
-    for dataset, image_id, hazy_path, clear_path in pairs:
-        hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
-        clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
-        hazy, clear = resize_pair(hazy, clear, args.image_size)
+    for offset in range(0, len(pairs), args.batch_size):
+        batch = pairs[offset:offset + args.batch_size]
+        prepared = []
+        for dataset, image_id, hazy_path, clear_path in batch:
+            hazy = cv2.cvtColor(cv2.imread(str(hazy_path)), cv2.COLOR_BGR2RGB)
+            clear = cv2.cvtColor(cv2.imread(str(clear_path)), cv2.COLOR_BGR2RGB)
+            hazy, clear = resize_pair(hazy, clear, args.image_size)
+            prepared.append((dataset, image_id, hazy_path, clear_path, hazy, clear))
         start = time.perf_counter()
-        output = infer_one(model, hazy, device, args.image_size)
-        runtime_ms = (time.perf_counter() - start) * 1000
-        clear = cv2.resize(clear, (args.image_size, args.image_size), interpolation=cv2.INTER_AREA)
-        row = {
-            "dataset": dataset, "image_id": image_id,
-            "data_origin": infer_data_origin(dataset),
-            "fog_level": infer_fog_level(dataset, image_id),
-            "width": args.image_size, "height": args.image_size,
-            "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear),
-            "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear),
-            "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear),
-            "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear),
-            "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path),
-        }
-        rows.append(row)
-        if args.save_images:
-            cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_dehazeddpm_nh.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
-        print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
+        outputs = infer_batch(model, [item[4] for item in prepared], device, args.image_size)
+        runtime_ms = (time.perf_counter() - start) * 1000 / len(prepared)
+        for (dataset, image_id, hazy_path, clear_path, hazy, clear), output in zip(prepared, outputs):
+            row = {
+                "dataset": dataset, "image_id": image_id,
+                "data_origin": infer_data_origin(dataset),
+                "fog_level": infer_fog_level(dataset, image_id),
+                "width": args.image_size, "height": args.image_size,
+                "hazy_psnr": calculate_psnr(hazy, clear), "hazy_ssim": calculate_ssim(hazy, clear),
+                "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear),
+                "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear),
+                "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear),
+                "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path),
+            }
+            rows.append(row)
+            if args.save_images:
+                cv2.imwrite(str(args.output_dir / "images" / f"{dataset}_{image_id}_dehazeddpm_nh.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+            print(dataset, image_id, f"PSNR={row['output_psnr']:.4f}", f"SSIM={row['output_ssim']:.4f}", f"ms={runtime_ms:.2f}")
     if not rows:
         raise RuntimeError("No paired images found.")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -136,7 +143,7 @@ def main():
     if args.device.startswith("cuda") and torch.cuda.is_available():
         index = torch.device(args.device).index or torch.cuda.current_device()
         hardware.update({"gpu": torch.cuda.get_device_name(index), "gpu_vram_total_gb": round(torch.cuda.get_device_properties(index).total_memory / 1024**3, 2), "gpu_vram_peak_allocated_gb": round(torch.cuda.max_memory_allocated(index) / 1024**3, 2), "gpu_vram_peak_reserved_gb": round(torch.cuda.max_memory_reserved(index) / 1024**3, 2)})
-    performance = {"images": len(rows), "inference_seconds": elapsed, "inference_fps": len(rows) / elapsed if elapsed else 0, "mean_ms_per_image": elapsed * 1000 / len(rows), "hardware": hardware}
+    performance = {"images": len(rows), "batch_size": args.batch_size, "inference_seconds": elapsed, "inference_fps": len(rows) / elapsed if elapsed else 0, "mean_ms_per_image": elapsed * 1000 / len(rows), "hardware": hardware}
     (args.output_dir / "performance.json").write_text(json.dumps(performance, indent=2), encoding="utf-8")
     workbook = Workbook()
     sheet = workbook.active
@@ -145,10 +152,13 @@ def main():
     for key, value in performance["hardware"].items():
         sheet.append((key, value))
     sheet.append(("images", performance["images"]))
+    sheet.append(("batch_size", performance["batch_size"]))
     sheet.append(("inference_seconds", performance["inference_seconds"]))
     sheet.append(("inference_fps", performance["inference_fps"]))
     sheet.append(("mean_ms_per_image", performance["mean_ms_per_image"]))
     workbook.save(args.output_dir / "dehazeddpm-nh_hardware.xlsx")
+    # Standardize the fourth report name used by evaluate.py and all wrappers.
+    workbook.save(args.output_dir / "hardware.xlsx")
     print(json.dumps(performance, indent=2))
 
 

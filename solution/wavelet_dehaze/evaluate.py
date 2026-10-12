@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
@@ -48,47 +49,67 @@ def pairs(root: Path, dataset: str):
     return result
 
 
-def run_model(model, pair_list, device, max_side, profile_repeats, save_dir=None):
+def run_model(model, pair_list, device, max_side, profile_repeats, save_dir=None, batch_size=16):
     rows, elapsed_total = [], 0.0
-    for index, (hazy_path, clear_path) in enumerate(pair_list, 1):
-        started = time.perf_counter()
-        with Image.open(hazy_path) as source:
-            hazy_img = source.convert("RGB")
-        with Image.open(clear_path) as source:
-            clear_img = source.convert("RGB")
-        if max_side and max(hazy_img.size) > max_side:
-            scale = max_side / max(hazy_img.size)
-            size = (round(hazy_img.width * scale), round(hazy_img.height * scale))
-            hazy_img = hazy_img.resize(size, Image.Resampling.LANCZOS)
-            clear_img = clear_img.resize(size, Image.Resampling.LANCZOS)
-        hazy = torch.from_numpy(np.array(hazy_img, copy=True)).float().div(255).permute(2, 0, 1).unsqueeze(0).to(device)
-        clear = np.array(clear_img, copy=True)
-        preprocess_ms = (time.perf_counter() - started) * 1000.0
+    for offset in range(0, len(pair_list), batch_size):
+        batch_pairs = pair_list[offset:offset + batch_size]
+        prepared = []
+        for hazy_path, clear_path in batch_pairs:
+            started = time.perf_counter()
+            with Image.open(hazy_path) as source:
+                hazy_img = source.convert("RGB")
+            with Image.open(clear_path) as source:
+                clear_img = source.convert("RGB")
+            if max_side and max(hazy_img.size) > max_side:
+                scale = max_side / max(hazy_img.size)
+                size = (round(hazy_img.width * scale), round(hazy_img.height * scale))
+                hazy_img = hazy_img.resize(size, Image.Resampling.LANCZOS)
+                clear_img = clear_img.resize(size, Image.Resampling.LANCZOS)
+            hazy = torch.from_numpy(np.array(hazy_img, copy=True)).float().div(255).permute(2, 0, 1)
+            clear = np.array(clear_img, copy=True)
+            prepared.append((hazy_path, clear_path, hazy, clear, (time.perf_counter() - started) * 1000.0))
+
+        target_h = max(item[2].shape[-2] for item in prepared)
+        target_w = max(item[2].shape[-1] for item in prepared)
+        tensors = []
+        for _, _, tensor, _, _ in prepared:
+            pad_h = target_h - tensor.shape[-2]
+            pad_w = target_w - tensor.shape[-1]
+            if pad_h or pad_w:
+                mode = "reflect" if pad_h < tensor.shape[-2] and pad_w < tensor.shape[-1] else "replicate"
+                tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
+            tensors.append(tensor)
+        hazy_batch = torch.stack(tensors).to(device)
         if device == "cuda":
             torch.cuda.synchronize()
-        output, stage = model.profile_forward(hazy, repeats=profile_repeats)
+        output, batch_stage = model.profile_forward(hazy_batch, repeats=profile_repeats)
         if device == "cuda":
             torch.cuda.synchronize()
-        elapsed_total += stage["total"] / 1000.0
-        result = output[0].permute(1, 2, 0).mul(255).clamp(0, 255).byte().cpu().numpy()
-        if save_dir is not None:
-            save_dir.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(result).save(save_dir / hazy_path.name)
-        row = {
-            "dataset": "",
-            "image_index": index,
-            "input_path": str(hazy_path),
-            "target_path": str(clear_path),
-            "output_psnr": peak_signal_noise_ratio(clear, result, data_range=255),
-            "output_ssim": structural_similarity(clear, result, channel_axis=2, data_range=255),
-            "runtime_ms": stage["total"],
-            "preprocess_ms": preprocess_ms,
-        }
-        row.update(stage)
-        row["preprocess_ms"] = preprocess_ms
-        row["total_with_preprocess"] = preprocess_ms + stage["total"]
-        print(f"    image {index}/{len(pair_list)} preprocess={preprocess_ms:.2f}ms inference={stage['total']:.2f}ms", flush=True)
-        rows.append(row)
+        batch_count = len(prepared)
+        batch_runtime_ms = batch_stage["total"]
+        elapsed_total += batch_runtime_ms / 1000.0
+        outputs = output.detach().cpu()
+        for index, (item, result_tensor) in enumerate(zip(prepared, outputs), offset + 1):
+            hazy_path, clear_path, tensor, clear, preprocess_ms = item
+            height, width = tensor.shape[-2:]
+            result = (result_tensor[:, :height, :width].permute(1, 2, 0).mul(255).clamp(0, 255).byte().numpy())
+            if save_dir is not None:
+                save_dir.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(result).save(save_dir / hazy_path.name)
+            row_stage = {key: value / batch_count for key, value in batch_stage.items()}
+            row = {
+                "dataset": "", "image_index": index,
+                "input_path": str(hazy_path), "target_path": str(clear_path),
+                "output_psnr": peak_signal_noise_ratio(clear, result, data_range=255),
+                "output_ssim": structural_similarity(clear, result, channel_axis=2, data_range=255),
+                "runtime_ms": batch_runtime_ms / batch_count,
+                "preprocess_ms": preprocess_ms,
+            }
+            row.update(row_stage)
+            row["preprocess_ms"] = preprocess_ms
+            row["total_with_preprocess"] = preprocess_ms + row["runtime_ms"]
+            print(f"    image {index}/{len(pair_list)} preprocess={preprocess_ms:.2f}ms inference={row['runtime_ms']:.2f}ms", flush=True)
+            rows.append(row)
     return rows, elapsed_total
 
 
@@ -155,18 +176,22 @@ def main():
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--max-side", type=int, default=1024)
     parser.add_argument("--profile-repeats", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--save-images-dir", type=Path, default=None)
     args = parser.parse_args()
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available")
     if args.profile_repeats < 1:
         raise ValueError("--profile-repeats must be positive")
+    if args.batch_size < 1:
+        raise ValueError("--batch-size must be positive")
     names = {"i-haze": "I-HAZE", "o-hazy": "O-HAZY", "sots-indoor": "Synthetic Objective Testing Set (SOTS) [RESIDE]", "sots-outdoor": "Synthetic Objective Testing Set (SOTS) [RESIDE]"}
     checkpoints = {key: getattr(args, "checkpoint_" + key.replace("-", "_")) for key in ("i-haze", "o-hazy", "sots-its", "sots-ots")}
     if not any(checkpoints.values()):
         raise ValueError("At least one checkpoint argument is required")
     datasets = {"i-haze": "i-haze", "o-hazy": "o-hazy", "sots-its": "sots-indoor", "sots-ots": "sots-outdoor"}
     all_rows, total_time, total_images, complexities = [], 0.0, 0, {}
+    run_started = time.perf_counter()
     for label, dataset in datasets.items():
         checkpoint = checkpoints[label]
         if checkpoint is None:
@@ -180,9 +205,9 @@ def main():
         pair_list = pairs(root, dataset)
         if not pair_list:
             raise ValueError(f"No matching test images for {dataset} under {root}")
-        print(f"[{label}] images={len(pair_list)} profile_repeats={args.profile_repeats}", flush=True)
+        print(f"[{label}] images={len(pair_list)} profile_repeats={args.profile_repeats} batch_size={args.batch_size}", flush=True)
         save_dir = args.save_images_dir / label if args.save_images_dir is not None else None
-        rows, inference_time = run_model(model, pair_list, args.device, args.max_side, args.profile_repeats, save_dir)
+        rows, inference_time = run_model(model, pair_list, args.device, args.max_side, args.profile_repeats, save_dir, args.batch_size)
         for row, (hazy, _) in zip(rows, pair_list):
             stem = hazy.stem
             row["dataset"] = dataset
@@ -194,10 +219,10 @@ def main():
         print(f"[{label}] mean_timing_ms=" + ", ".join(f"{key}={value:.3f}" for key, value in timing_means.items()), flush=True)
         timing_path = args.output_dir / f"timing_{label.replace('-', '_')}.json"
         timing_path.parent.mkdir(parents=True, exist_ok=True)
-        timing_path.write_text(json.dumps({"dataset": label, "images": len(rows), "mean_ms": timing_means}, indent=2), encoding="utf-8")
+        timing_path.write_text(json.dumps({"dataset": label, "images": len(rows), "batch_size": args.batch_size, "mean_ms": timing_means}, indent=2), encoding="utf-8")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     paths = export_excel_reports("HazeWaveNet", all_rows, args.output_dir)
-    performance = write_hardware_report(args.output_dir, "HazeWaveNet", total_images, total_time, total_time)
+    performance = write_hardware_report(args.output_dir, "HazeWaveNet", total_images, time.perf_counter() - run_started, total_time)
     write_detailed_workbook(args.output_dir / "hardware.xlsx", all_rows, complexities, performance["hardware"])
     print("Saved:"); [print(path) for path in paths.values()]
     print(args.output_dir / "hardware.xlsx")

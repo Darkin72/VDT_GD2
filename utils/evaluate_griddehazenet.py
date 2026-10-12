@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from excel_report import export_excel_reports
+from evaluation_hardware import write_hardware_report
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -131,6 +132,11 @@ def main():
     excel_paths = export_excel_reports(
         "GridDehazeNet", all_per_image_rows, args.output_dir
     )
+    # Keep the same four-workbook contract as the other benchmark evaluators.
+    elapsed = sum(float(item.get("elapsed_seconds", 0.0)) for item in performances.values())
+    inference = sum(float(item.get("inference_seconds", item.get("elapsed_seconds", 0.0))) for item in performances.values())
+    excel_paths["hardware"] = args.output_dir / "hardware.xlsx"
+    write_hardware_report(args.output_dir, "GridDehazeNet", len(all_per_image_rows), elapsed, inference)
 
     print(f"\nĐã lưu bảng tổng hợp tại: {output_path.resolve()}")
     print(f"Đã lưu thông tin hardware/FPS tại: {performance_path.resolve()}")

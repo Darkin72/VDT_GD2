@@ -170,18 +170,25 @@ def find_paired_images(root, dataset):
     return pairs
 
 
-def infer_one(model, image, device, max_side):
-    image, _ = resize_pair(image, image, max_side)
-    height, width = image.shape[:2]
-    tensor = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1).unsqueeze(0)
-    pad_h = (16 - height % 16) % 16
-    pad_w = (16 - width % 16) % 16
-    if pad_h or pad_w:
-        tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
+def infer_batch(model, images, device):
+    """Run a padded batch and crop each result back to its original size."""
+    shapes = [image.shape[:2] for image in images]
+    target_h = (max(height for height, _ in shapes) + 15) // 16 * 16
+    target_w = (max(width for _, width in shapes) + 15) // 16 * 16
+    tensors = []
+    for image, (height, width) in zip(images, shapes):
+        tensor = torch.from_numpy(image.astype(np.float32) / 255.0).permute(2, 0, 1)
+        pad_h, pad_w = target_h - height, target_w - width
+        if pad_h or pad_w:
+            mode = "reflect" if pad_h < height and pad_w < width else "replicate"
+            tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
+        tensors.append(tensor)
     with torch.inference_mode():
-        output = model.restoration_network(tensor.to(device))
-    output = output[..., :height, :width]
-    return (output[0].permute(1, 2, 0).cpu().numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        output = model.restoration_network(torch.stack(tensors).to(device))
+    return [
+        (output[index, :, :height, :width].permute(1, 2, 0).cpu().numpy().clip(0, 1) * 255).round().astype(np.uint8)
+        for index, (height, width) in enumerate(shapes)
+    ]
 
 
 def parse_args():
@@ -200,10 +207,13 @@ def parse_args():
     parser.add_argument("--evaluation-protocol", choices=("matched-dataset", "cross-dataset"), default=None)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-side", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--save-images", action="store_true")
     args = parser.parse_args()
+    if args.batch_size < 1:
+        parser.error("--batch-size must be positive")
     if not args.check_environment and (args.checkpoint is None or args.output_dir is None):
         parser.error("--checkpoint and --output-dir are required for inference")
     return args
@@ -241,32 +251,45 @@ def main():
     model = load_model(args.checkpoint, args.device, args.de_blocks)
     rows = []
     started = time.perf_counter()
-    for index, (dataset, image_id, hazy_path, clear_path, category) in enumerate(pairs, 1):
-        hazy_bgr = cv2.imread(str(hazy_path), cv2.IMREAD_COLOR)
-        clear_bgr = cv2.imread(str(clear_path), cv2.IMREAD_COLOR)
-        if hazy_bgr is None or clear_bgr is None:
-            raise RuntimeError(f"Cannot read pair: {hazy_path}, {clear_path}")
-        hazy = cv2.cvtColor(hazy_bgr, cv2.COLOR_BGR2RGB)
-        clear = cv2.cvtColor(clear_bgr, cv2.COLOR_BGR2RGB)
-        hazy, clear = resize_pair(hazy, clear, args.max_side)
+    for offset in range(0, len(pairs), args.batch_size):
+        batch_pairs = pairs[offset:offset + args.batch_size]
+        prepared = []
+        for dataset, image_id, hazy_path, clear_path, category in batch_pairs:
+            hazy_bgr = cv2.imread(str(hazy_path), cv2.IMREAD_COLOR)
+            clear_bgr = cv2.imread(str(clear_path), cv2.IMREAD_COLOR)
+            if hazy_bgr is None or clear_bgr is None:
+                raise RuntimeError(f"Cannot read pair: {hazy_path}, {clear_path}")
+            hazy = cv2.cvtColor(hazy_bgr, cv2.COLOR_BGR2RGB)
+            clear = cv2.cvtColor(clear_bgr, cv2.COLOR_BGR2RGB)
+            hazy, clear = resize_pair(hazy, clear, args.max_side)
+            prepared.append(((dataset, image_id, hazy_path, clear_path, category), hazy, clear))
+        if args.device.startswith("cuda"):
+            torch.cuda.synchronize()
         infer_started = time.perf_counter()
-        output = infer_one(model, hazy, args.device, 0)
-        runtime_ms = (time.perf_counter() - infer_started) * 1000
-        row = {
-            "dataset": dataset, "category": category, "image_id": image_id,
-            "data_origin": infer_data_origin(dataset),
-            "fog_level": infer_fog_level(dataset, image_id),
-            "input_psnr": calculate_psnr(hazy, clear), "input_ssim": calculate_ssim(hazy, clear),
-            "output_psnr": calculate_psnr(output, clear), "output_ssim": calculate_ssim(output, clear),
-            "psnr_improvement": calculate_psnr(output, clear) - calculate_psnr(hazy, clear),
-            "ssim_improvement": calculate_ssim(output, clear) - calculate_ssim(hazy, clear),
-            "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path),
-        }
-        rows.append(row)
-        if args.save_images:
-            safe_id = image_id.replace("/", "_").replace("\\", "_")
-            cv2.imwrite(str(args.output_dir / "images" / f"{safe_id}_wdmamba.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
-        print(f"[{index}/{len(pairs)}] {image_id} PSNR={row['output_psnr']:.4f} SSIM={row['output_ssim']:.4f} ms={runtime_ms:.2f}", flush=True)
+        outputs = infer_batch(model, [item[1] for item in prepared], args.device)
+        if args.device.startswith("cuda"):
+            torch.cuda.synchronize()
+        runtime_ms = (time.perf_counter() - infer_started) * 1000 / len(prepared)
+        for index, ((dataset, image_id, hazy_path, clear_path, category), hazy, clear), output in zip(
+            range(offset + 1, offset + len(prepared) + 1), prepared, outputs
+        ):
+            output_psnr = calculate_psnr(output, clear)
+            output_ssim = calculate_ssim(output, clear)
+            input_psnr = calculate_psnr(hazy, clear)
+            input_ssim = calculate_ssim(hazy, clear)
+            row = {
+                "dataset": dataset, "category": category, "image_id": image_id,
+                "data_origin": infer_data_origin(dataset), "fog_level": infer_fog_level(dataset, image_id),
+                "input_psnr": input_psnr, "input_ssim": input_ssim,
+                "output_psnr": output_psnr, "output_ssim": output_ssim,
+                "psnr_improvement": output_psnr - input_psnr, "ssim_improvement": output_ssim - input_ssim,
+                "runtime_ms": runtime_ms, "hazy_path": str(hazy_path), "clear_path": str(clear_path),
+            }
+            rows.append(row)
+            if args.save_images:
+                safe_id = image_id.replace("/", "_").replace("\\", "_")
+                cv2.imwrite(str(args.output_dir / "images" / f"{safe_id}_wdmamba.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
+            print(f"[{index}/{len(pairs)}] {image_id} PSNR={output_psnr:.4f} SSIM={output_ssim:.4f} ms={runtime_ms:.2f}", flush=True)
 
     with (args.output_dir / "per_image.csv").open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0]))
@@ -283,7 +306,7 @@ def main():
         "de_blocks": model.de_blocks,
         "checkpoint_training_dataset": args.checkpoint_training_dataset,
         "evaluation_protocol": args.evaluation_protocol,
-        "split": args.split, "max_side": args.max_side, "limit": args.limit,
+        "split": args.split, "max_side": args.max_side, "limit": args.limit, "batch_size": args.batch_size,
         "paired_root": str(args.paired_root) if args.paired_root else None,
         "excel_reports": {key: str(path) for key, path in excel_paths.items()},
     }
