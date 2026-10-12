@@ -210,6 +210,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--report-prefix", default="", help="Prefix report filenames when several datasets share one output folder.")
     parser.add_argument("--save-images", action="store_true")
     args = parser.parse_args()
     if args.batch_size < 1:
@@ -288,6 +289,10 @@ def main():
             rows.append(row)
             if args.save_images:
                 safe_id = image_id.replace("/", "_").replace("\\", "_")
+                if args.report_prefix:
+                    # A shared output directory may contain the same image id
+                    # from several datasets. Keep each run's images distinct.
+                    safe_id = f"{args.report_prefix.strip().replace('/', '_').replace(chr(92), '_')}_{safe_id}"
                 cv2.imwrite(str(args.output_dir / "images" / f"{safe_id}_wdmamba.png"), cv2.cvtColor(output, cv2.COLOR_RGB2BGR))
             print(f"[{index}/{len(pairs)}] {image_id} PSNR={output_psnr:.4f} SSIM={output_ssim:.4f} ms={runtime_ms:.2f}", flush=True)
 
@@ -310,7 +315,29 @@ def main():
         "paired_root": str(args.paired_root) if args.paired_root else None,
         "excel_reports": {key: str(path) for key, path in excel_paths.items()},
     }
-    (args.output_dir / "run_config.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    if args.report_prefix:
+        prefix = args.report_prefix.strip().replace("/", "_").replace("\\", "_")
+        renamed = {}
+        for key, path in excel_paths.items():
+            target = args.output_dir / f"{prefix}_{path.name}"
+            path.replace(target)
+            renamed[key] = target
+        hardware = args.output_dir / "hardware.xlsx"
+        if hardware.exists():
+            target = args.output_dir / f"{prefix}_hardware.xlsx"
+            hardware.replace(target)
+            renamed["hardware"] = target
+        excel_paths = renamed
+        for name in ("per_image.csv", "performance.json"):
+            source = args.output_dir / name
+            if source.exists():
+                source.replace(args.output_dir / f"{prefix}_{name}")
+        summary["excel_reports"] = {key: str(path) for key, path in excel_paths.items()}
+        summary["report_prefix"] = prefix
+        config_path = args.output_dir / f"{prefix}_run_config.json"
+    else:
+        config_path = args.output_dir / "run_config.json"
+    config_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
     print("Excel reports:", flush=True)
     for path in excel_paths.values():
