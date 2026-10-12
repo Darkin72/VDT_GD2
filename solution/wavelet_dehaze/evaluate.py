@@ -17,7 +17,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "utils"))
 from excel_report import export_excel_reports
 from evaluation_hardware import write_hardware_report
-from .model import HazeWaveNet
+if __package__:
+    from .model import HazeWaveNet
+else:
+    # Support older notebook cells that still invoke this file directly.
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from solution.wavelet_dehaze.model import HazeWaveNet
 
 STAGE_KEYS = (
     "preprocess_ms", "dcp_fixed_prior", "dwt_mfde_decomposition",

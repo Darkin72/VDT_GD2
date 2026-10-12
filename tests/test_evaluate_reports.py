@@ -11,6 +11,22 @@ from openpyxl import load_workbook
 import pytest
 
 
+@pytest.mark.parametrize("as_module", [False, True])
+def test_hazewavenet_cli_imports_in_both_launch_modes(tmp_path, as_module):
+    pytest.importorskip("skimage")
+    root = Path(__file__).resolve().parents[1]
+    launcher = (["-m", "solution.wavelet_dehaze.evaluate"] if as_module else
+                [str(root / "solution" / "wavelet_dehaze" / "evaluate.py")])
+    # Direct invocation must also work outside the repository working directory.
+    result = subprocess.run(
+        [sys.executable, *launcher, "--help"],
+        cwd=root if as_module else tmp_path, check=True,
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert "--batch-size" in result.stdout
+    assert "--checkpoint-sots-its" in result.stdout
+
+
 @pytest.mark.parametrize("solution", ["dcp", "cap"])
 def test_classic_run_exports_hardware_and_preserves_performance(tmp_path, solution):
     data_root = tmp_path / "data"
