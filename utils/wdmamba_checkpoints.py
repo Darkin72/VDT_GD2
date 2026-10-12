@@ -16,6 +16,34 @@ import zipfile
 SHARE_URL = "https://pan.baidu.com/s/1HIs-nHXEaLxwBb1279PVbw?pwd=98j9"
 SHARE_CODE = "98j9"
 ARCHIVE_NAME = "WDMamba_ckpts.zip"
+DRIVE_FILE_ID = "1Vm-1mtMSc9YIUICq4nWKu-4AHCtYnPpF"
+
+
+def download_drive(file_id, destination):
+    """Download a Drive ZIP and publish it only after validating the archive."""
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file() and zipfile.is_zipfile(destination):
+        print("Reusing ZIP:", destination, flush=True)
+        return destination
+    try:
+        import gdown
+    except ImportError as exc:
+        raise RuntimeError("Google Drive download requires gdown. Run: pip install gdown") from exc
+    partial = destination.with_name(destination.name + ".partial")
+    result = gdown.download(
+        id=file_id, output=str(partial), quiet=False, use_cookies=False, resume=True,
+    )
+    if result is None or not zipfile.is_zipfile(partial):
+        raise RuntimeError(
+            "Google Drive did not return a valid checkpoint ZIP. "
+            "Check that the file is shared with anyone with the link, or use local/upload mode."
+        )
+    with zipfile.ZipFile(partial) as archive:
+        if archive.testzip() is not None:
+            raise RuntimeError("The downloaded checkpoint ZIP is corrupt; download it again.")
+    partial.replace(destination)
+    return destination
 
 
 def run_pcs(pcs, *args, secrets=(), timeout=9000, heartbeat_interval=15):
