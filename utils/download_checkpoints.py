@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,13 @@ DRIVE_FOLDERS = {
     "udpnet": "1_XDXqcdqF5DuuZSGQQC4Je_5SZer7-Jv",
     "mb_taylorformerv2": "1_85eRPM2ZMU74BEziHFXktp2um1ueUoC",
     "hazewavenet": "1DR5JvR43JcO1goxL-sc4vuodl-ZiOJ1P",
+}
+
+DIRECT_FILES = {
+    "griddehazenet": (
+        ("indoor_haze_best_3_6", "https://raw.githubusercontent.com/Darkin72/GridDehazeNet/main/indoor_haze_best_3_6"),
+        ("outdoor_haze_best_3_6", "https://raw.githubusercontent.com/Darkin72/GridDehazeNet/main/outdoor_haze_best_3_6"),
+    ),
 }
 
 REQUIRED = {
@@ -63,6 +71,19 @@ def _find(files: list[Path], name: str) -> Path | None:
 
 
 def download(kind: str, cache_root: Path) -> list[Path]:
+    if kind in DIRECT_FILES:
+        paths = []
+        target_root = PROJECT_ROOT / "solution" / "GridDehazeNet"
+        target_root.mkdir(parents=True, exist_ok=True)
+        for name, url in DIRECT_FILES[kind]:
+            target = target_root / name
+            if not target.is_file() or target.stat().st_size == 0:
+                partial = target.with_suffix(target.suffix + ".part")
+                print(f"  downloading: {url}", flush=True)
+                urllib.request.urlretrieve(url, partial)
+                partial.replace(target)
+            paths.append(target)
+        return paths
     if kind not in DRIVE_FOLDERS:
         raise ValueError(f"Unknown checkpoint group: {kind}")
     files = _download_folder(DRIVE_FOLDERS[kind], cache_root / kind)
@@ -94,16 +115,16 @@ def download(kind: str, cache_root: Path) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--group", choices=("all", *DRIVE_FOLDERS), default="all")
+    parser.add_argument("--group", choices=("all", *DRIVE_FOLDERS, *DIRECT_FILES), default="all")
     parser.add_argument("--cache-root", type=Path, default=PROJECT_ROOT / "checkpoints" / "downloads")
     args = parser.parse_args()
-    groups = list(DRIVE_FOLDERS) if args.group == "all" else [args.group]
+    groups = [*DRIVE_FOLDERS, *DIRECT_FILES] if args.group == "all" else [args.group]
     for group in groups:
         print(f"[{group}] downloading/checking checkpoint folder", flush=True)
         for path in download(group, args.cache_root):
             print(f"  ready: {path}", flush=True)
-    # GridDehazeNet checkpoints are tracked by the repository; report them
-    # explicitly so a run fails before inference if a checkout is incomplete.
+    # Report tracked/local checkpoints explicitly so a run fails before
+    # inference if a checkout is incomplete.
     tracked = (
         PROJECT_ROOT / "solution/GridDehazeNet/indoor_haze_best_3_6",
         PROJECT_ROOT / "solution/GridDehazeNet/outdoor_haze_best_3_6",
