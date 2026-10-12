@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from excel_report import export_excel_reports
+from excel_report import export_excel_reports, export_hardware_workbook
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SOLUTION_ROOT = PROJECT_ROOT / "solution"
@@ -755,6 +755,9 @@ def main():
     }
     excel_paths = export_excel_reports(
         solution_labels[args.solution], rows, run_directory
+    )
+    excel_paths["hardware"] = export_hardware_workbook(
+        solution_labels[args.solution], performance, run_directory
     )
 
     configuration = {

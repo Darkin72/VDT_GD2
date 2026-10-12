@@ -113,3 +113,26 @@ def export_excel_reports(solution_name, rows, output_dir):
     write_grouped_workbook(paths["domain"], solution_name, origin_groups)
     write_grouped_workbook(paths["fog"], solution_name, fog_groups)
     return paths
+
+
+def export_hardware_workbook(solution_name, performance, output_dir):
+    """Export evaluate.py's measured statistics without changing its JSON report.
+
+    This also works with an existing performance.json from a completed run.
+    """
+    path = Path(output_dir) / "hardware.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Hardware"
+    sheet.append(("Solution", solution_name))
+    for key, value in performance.get("hardware", {}).items():
+        sheet.append((key, value))
+    for key, value in performance.items():
+        if key != "hardware":
+            sheet.append((key, value))
+    sheet.freeze_panes = "A2"
+    sheet.column_dimensions["A"].width = 42
+    sheet.column_dimensions["B"].width = 24
+    path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(path)
+    return path
