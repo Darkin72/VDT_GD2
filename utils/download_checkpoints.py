@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -28,6 +30,27 @@ DIRECT_FILES = {
         ("outdoor_haze_best_3_6", "https://raw.githubusercontent.com/Darkin72/GridDehazeNet/main/outdoor_haze_best_3_6"),
     ),
 }
+GRID_REPOSITORY = "https://github.com/Darkin72/GridDehazeNet.git"
+
+
+def ensure_grid_source() -> Path:
+    """Ensure the evaluator source exists even when the checkout has weights only."""
+    target = PROJECT_ROOT / "solution" / "GridDehazeNet"
+    required = (target / "model.py", target / "residual_dense_block.py")
+    if all(path.is_file() for path in required):
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="griddehazenet-") as temporary:
+        staging = Path(temporary) / "GridDehazeNet"
+        subprocess.run(
+            ["git", "clone", "--depth", "1", GRID_REPOSITORY, str(staging)],
+            check=True,
+        )
+        shutil.copytree(staging, target, dirs_exist_ok=True)
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("GridDehazeNet source is incomplete: " + ", ".join(missing))
+    return target
 
 REQUIRED = {
     "udpnet": (
@@ -72,6 +95,7 @@ def _find(files: list[Path], name: str) -> Path | None:
 
 def download(kind: str, cache_root: Path) -> list[Path]:
     if kind in DIRECT_FILES:
+        ensure_grid_source()
         paths = []
         target_root = PROJECT_ROOT / "solution" / "GridDehazeNet"
         target_root.mkdir(parents=True, exist_ok=True)
