@@ -8,6 +8,7 @@ import platform
 import sys
 import threading
 import time
+import importlib.util
 from pathlib import Path
 
 import cv2
@@ -253,9 +254,22 @@ def run_griddehazenet(image, args):
     )
     if _GRID_DEHAZENET_MODEL is None or _GRID_DEHAZENET_CONFIG != config:
         grid_root = PROJECT_ROOT / "solution" / "GridDehazeNet"
-        if str(grid_root) not in sys.path:
-            sys.path.insert(0, str(grid_root))
-        from model import GridDehazeNet
+        grid_root = grid_root.resolve()
+        grid_root_str = str(grid_root)
+        if grid_root_str in sys.path:
+            sys.path.remove(grid_root_str)
+        sys.path.insert(0, grid_root_str)
+        # Load by absolute filename.  Colab kernels can already have a module
+        # named ``model`` cached by another repository, so a plain import is
+        # not reliable in the multi-model subprocess.
+        spec = importlib.util.spec_from_file_location(
+            "vdt_griddehazenet_model", grid_root / "model.py"
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load GridDehazeNet model from {grid_root / 'model.py'}")
+        grid_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(grid_module)
+        GridDehazeNet = grid_module.GridDehazeNet
 
         device = torch.device(device_name)
         model = GridDehazeNet(
