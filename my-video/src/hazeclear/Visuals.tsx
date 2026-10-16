@@ -32,7 +32,7 @@ export const Stage = ({
   title: string;
   subtitle: string;
   children: ReactNode;
-  note?: string;
+  note?: ReactNode;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -69,13 +69,10 @@ export const Stage = ({
           lineHeight: 1.08,
           fontWeight: 700,
           opacity: interpolate(frame, [0, 0.5 * fps], [0, 1], clamp),
-          translate: interpolate(
-            frame,
-            [0, 0.7 * fps],
-            ["0px 15px", "0px 0px"],
-            clamp,
-          ),
+          translate: interpolate(frame, [0, 0.7 * fps], ["0px 15px", "0px 0px"], clamp)
         }}
+        from={57}
+        trimBefore={57}
       >
         {title}
       </Interactive.Div>
@@ -101,7 +98,9 @@ export const Stage = ({
           color: colors.muted,
         }}
       >
-        {note || "Minh họa nguyên lý • Kiến trúc kế thừa WDMamba"}
+        {note === undefined
+          ? "Minh họa nguyên lý • Kiến trúc kế thừa WDMamba"
+          : note}
       </div>
     </AbsoluteFill>
   );
