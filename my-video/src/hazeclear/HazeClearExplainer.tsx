@@ -5,6 +5,7 @@ import { Mamba } from "./Mamba";
 import { Reconstruction } from "./Reconstruction";
 import { DenRole } from "./DenRole";
 import { Detail } from "./Detail";
+import { DenResult } from "./DenResult";
 import { Optimization } from "./Optimization";
 import { Closing } from "./Closing";
 
@@ -48,15 +49,21 @@ export const HazeClearExplainer = () => {
         durationInFrames={10 * fps}
         premountFor={fps}
       />
-      <Optimization
-        name="07 - DSRB thay DEN"
+      <DenResult
+        name="07 - Kết quả DEN"
         from={56 * fps}
+        durationInFrames={8 * fps}
+        premountFor={fps}
+      />
+      <Optimization
+        name="08 - DSRB thay DEN"
+        from={64 * fps}
         durationInFrames={14 * fps}
         premountFor={fps}
       />
       <Closing
-        name="08 - Kết quả và hướng phát triển"
-        from={70 * fps}
+        name="09 - Kết quả và hướng phát triển"
+        from={78 * fps}
         durationInFrames={12 * fps}
         premountFor={fps}
       />

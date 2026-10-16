@@ -7,6 +7,7 @@ import { Mamba } from "./hazeclear/Mamba";
 import { Reconstruction } from "./hazeclear/Reconstruction";
 import { DenRole } from "./hazeclear/DenRole";
 import { Detail } from "./hazeclear/Detail";
+import { DenResult } from "./hazeclear/DenResult";
 import { Optimization } from "./hazeclear/Optimization";
 import { Closing } from "./hazeclear/Closing";
 
@@ -16,7 +17,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="HazeClearExplainer"
         component={HazeClearExplainer}
-        durationInFrames={2460}
+        durationInFrames={2700}
         fps={30}
         width={1280}
         height={720}
@@ -66,6 +67,14 @@ export const RemotionRoot: React.FC = () => {
           id="HazeClear-Detail"
           component={Detail}
           durationInFrames={300}
+          fps={30}
+          width={1280}
+          height={720}
+        />
+        <Composition
+          id="HazeClear-DenResult"
+          component={DenResult}
+          durationInFrames={240}
           fps={30}
           width={1280}
           height={720}
