@@ -11,7 +11,7 @@ const ClosingInner = () => {
   const { fps } = useVideoConfig();
   return (
     <Stage
-      chapter="07 / KẾT QUẢ"
+      chapter="08 / KẾT QUẢ"
       title="Kết quả và hướng tiếp theo"
       subtitle="DSRB tăng FPS nhưng giảm PSNR."
       note="Thử nghiệm tiếp theo: số kênh, số khối, kết nối tắt và chưng cất mô hình."

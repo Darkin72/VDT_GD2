@@ -180,9 +180,15 @@ export const Wipe = ({
   );
 };
 
-export const Pipeline = ({ active = 0 }: { active?: number }) => (
+export const Pipeline = ({
+  active = 0,
+  refinement = "DSRB",
+}: {
+  active?: number;
+  refinement?: "DEN" | "DSRB";
+}) => (
   <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
-    {["Ảnh vào", "DWT", "LFRN", "IWT", "DSRB", "Ảnh ra"].map((label, i) => (
+    {["Ảnh vào", "DWT", "LFRN", "IWT", refinement, "Ảnh ra"].map((label, i) => (
       <div
         key={label}
         style={{ display: "flex", alignItems: "center", gap: 13 }}

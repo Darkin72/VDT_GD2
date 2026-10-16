@@ -18,7 +18,7 @@ const DetailInner = () => {
   const { fps } = useVideoConfig();
   return (
     <Stage
-      chapter="05 / ĐO THỜI GIAN DEN"
+      chapter="06 / ĐO THỜI GIAN DEN"
       title="DEN có thời gian xử lý lớn nhất"
       subtitle="Thời gian GPU của từng khối được đo trên RESIDE-6K."
       note="Điều kiện: 1.000 ảnh • A100 80 GB • FP32 • lô 100 ảnh • cạnh tối đa 512 px"

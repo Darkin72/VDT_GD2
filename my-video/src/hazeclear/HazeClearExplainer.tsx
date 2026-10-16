@@ -3,6 +3,7 @@ import { Opening } from "./Opening";
 import { Wavelet } from "./Wavelet";
 import { Mamba } from "./Mamba";
 import { Reconstruction } from "./Reconstruction";
+import { DenRole } from "./DenRole";
 import { Detail } from "./Detail";
 import { Optimization } from "./Optimization";
 import { Closing } from "./Closing";
@@ -35,21 +36,27 @@ export const HazeClearExplainer = () => {
         durationInFrames={8 * fps}
         premountFor={fps}
       />
-      <Detail
-        name="05 - DEN là điểm nghẽn"
+      <DenRole
+        name="05 - Vai trò của DEN"
         from={38 * fps}
+        durationInFrames={8 * fps}
+        premountFor={fps}
+      />
+      <Detail
+        name="06 - Đo thời gian DEN"
+        from={46 * fps}
         durationInFrames={10 * fps}
         premountFor={fps}
       />
       <Optimization
-        name="06 - DSRB thay DEN"
-        from={48 * fps}
+        name="07 - DSRB thay DEN"
+        from={56 * fps}
         durationInFrames={14 * fps}
         premountFor={fps}
       />
       <Closing
-        name="07 - Kết quả và hướng phát triển"
-        from={62 * fps}
+        name="08 - Kết quả và hướng phát triển"
+        from={70 * fps}
         durationInFrames={12 * fps}
         premountFor={fps}
       />

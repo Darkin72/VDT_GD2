@@ -76,7 +76,7 @@ const OptimizationInner = () => {
   const resultOpacity = interpolate(frame, [5.2 * fps, 6.2 * fps], [0, 1], clamp);
   return (
     <Stage
-      chapter="06 / DSRB THAY DEN"
+      chapter="07 / DSRB THAY DEN"
       title="Thay DEN bằng DSRB"
       subtitle="Giữ DWT, LFRN và IWT; thay khối tinh chỉnh cuối."
       note="DSRB và mô hình gốc được đo trên cùng SOTS-OTS."
