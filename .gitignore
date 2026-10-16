@@ -20,3 +20,5 @@ solution/data_analysis_report.txt
 utils/evaluation_results/*
 solution/report/*
 outputs/*
+report/*
+my-video/*
