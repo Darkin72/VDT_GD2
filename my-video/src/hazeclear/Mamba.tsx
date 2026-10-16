@@ -24,9 +24,9 @@ const MambaInner = () => {
   return (
     <Stage
       chapter="03 / LFRN + MAMBA"
-      title="Kết nối thông tin trên toàn ảnh"
-      subtitle="Quét đặc trưng theo bốn hướng và hợp nhất ngữ cảnh không gian."
-      note="Sơ đồ minh họa SS2D • Không phải attention map hoặc đặc trưng xuất từ mô hình"
+      title="Phục hồi cấu trúc toàn cục"
+      subtitle="LFRN dùng Mamba để tổng hợp ngữ cảnh theo bốn hướng."
+      note="Sơ đồ SS2D minh họa; không phải đặc trưng trích xuất từ mô hình."
     >
       <div
         style={{
@@ -81,9 +81,9 @@ const MambaInner = () => {
             lineHeight: 1.4,
           }}
         >
-          Truyền trạng thái qua các vị trí.
+          Truyền trạng thái giữa các vị trí.
           <br />
-          Khôi phục cấu trúc toàn cục.
+          Tổng hợp ngữ cảnh không gian.
         </div>
       </div>
       <div
@@ -97,7 +97,7 @@ const MambaInner = () => {
           opacity: interpolate(frame, [8.5 * fps, 9.5 * fps], [0, 1], clamp),
         }}
       >
-        Hợp nhất bốn hướng trong mạng phục hồi tần số thấp
+        Hợp nhất bốn hướng trong LFRN
       </div>
     </Stage>
   );

@@ -12,9 +12,9 @@ const ReconstructionInner = () => {
   return (
     <Stage
       chapter="04 / IWT"
-      title="Tái dựng ảnh sau phục hồi"
-      subtitle="Wavelet ngược đưa biểu diễn trở lại không gian ảnh RGB."
-      note="Ảnh thô là mô phỏng làm mờ ảnh paper để giải thích trình tự • Không phải đầu ra LFRN đã đo"
+      title="Tái dựng ảnh bằng IWT"
+      subtitle="IWT kết hợp dải tần thấp đã phục hồi với các dải chi tiết."
+      note="Ảnh minh họa được làm mờ; không phải đầu ra đo từ LFRN."
     >
       <div
         style={{
@@ -26,12 +26,10 @@ const ReconstructionInner = () => {
           lineHeight: 1.25,
         }}
       >
-        Tần số thấp
-        <br />
-        <b style={{ color: colors.red }}>đã phục hồi</b>
+        <b style={{ color: colors.red }}>Tần số thấp đã phục hồi</b>
         <br />
         <span style={{ fontSize: 27, color: colors.muted }}>
-          cùng các dải chi tiết
+          + các dải chi tiết
         </span>
       </div>
       <div
@@ -68,7 +66,7 @@ const ReconstructionInner = () => {
             fontSize: 22,
           }}
         >
-          Ảnh khử sương thô (mô phỏng)
+          Ảnh sau IWT (mô phỏng)
         </div>
       </div>
       <div style={{ position: "absolute", left: 90, top: 595 }}>

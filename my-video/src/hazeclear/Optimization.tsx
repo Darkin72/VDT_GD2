@@ -77,18 +77,18 @@ const OptimizationInner = () => {
   return (
     <Stage
       chapter="06 / DSRB THAY DEN"
-      title="Giảm chi phí bằng tích chập tách theo chiều sâu"
-      subtitle="Giữ Wavelet và LFRN; chỉ thay khối tinh chỉnh cuối bằng DSRB."
-      note="So sánh DSRB với baseline trên cùng SOTS-OTS • Không so trực tiếp với profiling RESIDE-6K"
+      title="Thay DEN bằng DSRB"
+      subtitle="Giữ DWT, LFRN và IWT; thay khối tinh chỉnh cuối."
+      note="DSRB và mô hình gốc được đo trên cùng SOTS-OTS."
     >
       <div style={{ position: "absolute", left: 65, top: 222, fontSize: 25, color: colors.red, fontWeight: 700 }}>
-        CƠ CHẾ DSRB
+        CẤU TRÚC DSRB
       </div>
-      <Block left={65} top={280} width={145} delay={0.7}>Đặc trưng<br />từ IWT</Block>
+      <Block left={65} top={280} width={145} delay={0.7}>Đầu vào<br />từ IWT</Block>
       <Arrow left={211} top={300} width={55} delay={1.3} />
-      <Block left={265} top={270} width={175} accent delay={1.6}>Depthwise 3×3<br />xử lý từng kênh</Block>
+      <Block left={265} top={270} width={175} accent delay={1.6}>Depthwise 3×3<br />Xử lý theo kênh</Block>
       <Arrow left={441} top={300} width={55} delay={2.2} />
-      <Block left={495} top={270} width={180} delay={2.5}>Pointwise 1×1<br />trộn thông tin kênh</Block>
+      <Block left={495} top={270} width={180} delay={2.5}>Pointwise 1×1<br />Trộn thông tin kênh</Block>
       <div
         style={{
           position: "absolute",
@@ -101,9 +101,9 @@ const OptimizationInner = () => {
           opacity: interpolate(frame, [3.1 * fps, 3.8 * fps], [0, 1], clamp),
         }}
       />
-      <Block left={495} top={440} width={180} accent delay={3.7}>+ Residual</Block>
+      <Block left={495} top={440} width={180} accent delay={3.7}>+ Kết nối tắt</Block>
       <div style={{ position: "absolute", left: 67, top: 540, width: 610, fontSize: 22, color: colors.muted }}>
-        Residual giữ đường truyền đặc trưng; depthwise giảm chi phí không gian và pointwise trộn thông tin kênh.
+        Depthwise giảm chi phí; pointwise trộn kênh; kết nối tắt giữ đặc trưng đầu vào.
       </div>
 
       <div
@@ -115,10 +115,10 @@ const OptimizationInner = () => {
           opacity: resultOpacity,
         }}
       >
-        <div style={{ fontSize: 25, color: colors.red, fontWeight: 700 }}>KẾT QUẢ SOTS-OTS</div>
+        <div style={{ fontSize: 25, color: colors.red, fontWeight: 700 }}>KẾT QUẢ TRÊN SOTS-OTS</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 30 }}>
           <div style={{ background: "#FFFFFFC8", padding: 20, borderTop: `6px solid ${colors.ink}` }}>
-            <div style={{ fontSize: 20, color: colors.muted }}>BASELINE</div>
+            <div style={{ fontSize: 20, color: colors.muted }}>MÔ HÌNH GỐC</div>
             <div style={{ fontSize: 43, fontWeight: 700, marginTop: 8 }}>28,04 FPS</div>
             <div style={{ fontSize: 24, marginTop: 9 }}>32,35 dB</div>
           </div>
@@ -134,7 +134,7 @@ const OptimizationInner = () => {
           <span style={{ color: colors.teal }}>−24,73% thời gian</span>
         </div>
         <div style={{ marginTop: 22, fontSize: 23, lineHeight: 1.35 }}>
-          PSNR giảm <b>1,17 dB</b>: tốc độ đạt mục tiêu, chất lượng chưa đạt giới hạn giảm tối đa 0,3 dB.
+          PSNR giảm <b>1,17 dB</b>. Mục tiêu giảm tối đa 0,3 dB chưa đạt.
         </div>
       </div>
     </Stage>

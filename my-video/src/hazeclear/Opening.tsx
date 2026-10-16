@@ -12,8 +12,8 @@ const OpeningInner = () => {
   return (
     <Stage
       chapter="01 / BÀI TOÁN"
-      title="Một ảnh rõ hơn bắt đầu từ đâu?"
-      subtitle="Sương làm mất tương phản, màu sắc và chi tiết."
+      title="Bài toán khử sương ảnh"
+      subtitle="Sương làm giảm tương phản, sai lệch màu và che khuất chi tiết."
       showNote={false}
     >
       <div style={{ position: "absolute", left: 58, top: 228 }}>
@@ -29,15 +29,15 @@ const OpeningInner = () => {
         }}
       >
         <div style={{ fontSize: 26, color: colors.red, fontWeight: 700 }}>
-          Ý TƯỞNG GIẢI PHÁP
+          QUY TRÌNH
         </div>
         <div style={{ fontSize: 43, lineHeight: 1.23, marginTop: 24 }}>
-          Khôi phục cấu trúc.
+          Phục hồi cấu trúc.
           <br />
-          Sau đó làm rõ chi tiết.
+          Tinh chỉnh chi tiết.
         </div>
         <div style={{ fontSize: 23, color: colors.muted, marginTop: 29 }}>
-          Wavelet + Mamba + DSRB
+          Wavelet • Mamba • DSRB
         </div>
       </div>
     </Stage>

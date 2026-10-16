@@ -18,10 +18,10 @@ const DetailInner = () => {
   const { fps } = useVideoConfig();
   return (
     <Stage
-      chapter="05 / ĐIỂM NGHẼN DEN"
-      title="Chất lượng tốt, nhưng chi phí quá lớn"
-      subtitle="Profiling baseline trên RESIDE-6K cho thấy DEN chiếm phần lớn thời gian theo khối."
-      note="Profiling: 1.000 ảnh RESIDE-6K • A100 80 GB • FP32 • batch 100 • max side 512"
+      chapter="05 / ĐO THỜI GIAN DEN"
+      title="DEN có thời gian xử lý lớn nhất"
+      subtitle="Thời gian GPU của từng khối được đo trên RESIDE-6K."
+      note="Điều kiện: 1.000 ảnh • A100 80 GB • FP32 • lô 100 ảnh • cạnh tối đa 512 px"
     >
       <div
         style={{
@@ -82,7 +82,7 @@ const DetailInner = () => {
           71,71%
         </div>
         <div style={{ fontSize: 27, lineHeight: 1.35, marginTop: 9 }}>
-          thời gian của các khối được đo nằm ở DEN.
+          thời gian đo được thuộc về DEN.
         </div>
         <div
           style={{
@@ -96,7 +96,7 @@ const DetailInner = () => {
         >
           DEN dùng tích chập dày và xử lý miền Fourier.
           <br />
-          Đây là vị trí tối ưu có tác động lớn nhất.
+          DEN được chọn để tối ưu.
         </div>
       </div>
     </Stage>

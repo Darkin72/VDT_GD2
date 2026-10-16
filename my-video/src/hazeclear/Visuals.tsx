@@ -102,7 +102,7 @@ export const Stage = ({
           }}
         >
           {note === undefined
-            ? "Minh họa nguyên lý • Kiến trúc kế thừa WDMamba"
+            ? "Sơ đồ minh họa."
             : note}
         </div>
       ) : null}
@@ -182,7 +182,7 @@ export const Wipe = ({
 
 export const Pipeline = ({ active = 0 }: { active?: number }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
-    {["Ảnh sương", "DWT", "LFRN", "IWT", "DSRB", "Ảnh rõ"].map((label, i) => (
+    {["Ảnh vào", "DWT", "LFRN", "IWT", "DSRB", "Ảnh ra"].map((label, i) => (
       <div
         key={label}
         style={{ display: "flex", alignItems: "center", gap: 13 }}

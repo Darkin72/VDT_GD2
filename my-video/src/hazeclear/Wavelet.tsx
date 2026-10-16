@@ -12,9 +12,9 @@ const WaveletInner = () => {
   return (
     <Stage
       chapter="02 / WAVELET"
-      title="Tách ảnh thành các dải tần"
-      subtitle="DWT tách cấu trúc tổng thể khỏi biến thiên nhanh của ảnh."
-      note="Haar DWT trên ảnh minh họa • Dải chi tiết được tăng tương phản để nhìn rõ"
+      title="Tách ảnh theo dải tần"
+      subtitle="DWT phân tách thành phần tần số thấp và cao."
+      note="Minh họa Haar DWT; các dải chi tiết được tăng tương phản."
     >
       <div
         style={{
@@ -84,7 +84,7 @@ const WaveletInner = () => {
               color: i === 0 ? colors.red : colors.muted,
             }}
           >
-            {i === 0 ? "Cấu trúc, độ sáng, tương phản" : "Biên và texture"}
+            {i === 0 ? "Cấu trúc, độ sáng, tương phản" : "Biên và kết cấu"}
           </div>
         </div>
       ))}
@@ -98,9 +98,7 @@ const WaveletInner = () => {
           color: colors.muted,
         }}
       >
-        Mỗi dải có kích thước
-        <br />
-        <b>H/2 × W/2</b>
+        Kích thước mỗi dải: <b>H/2 × W/2</b>
       </div>
     </Stage>
   );
