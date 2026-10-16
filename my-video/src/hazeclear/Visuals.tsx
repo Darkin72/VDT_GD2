@@ -27,7 +27,7 @@ export const Stage = ({
   subtitle,
   children,
   note,
-  showNote = true,
+  showNote = false,
 }: {
   chapter: string;
   title: string;
