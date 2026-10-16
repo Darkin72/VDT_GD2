@@ -27,12 +27,14 @@ export const Stage = ({
   subtitle,
   children,
   note,
+  showNote = true,
 }: {
   chapter: string;
   title: string;
   subtitle: string;
   children: ReactNode;
   note?: ReactNode;
+  showNote?: boolean;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -89,19 +91,21 @@ export const Stage = ({
         {subtitle}
       </div>
       {children}
-      <div
-        style={{
-          position: "absolute",
-          left: 58,
-          bottom: 27,
-          fontSize: 17,
-          color: colors.muted,
-        }}
-      >
-        {note === undefined
-          ? "Minh họa nguyên lý • Kiến trúc kế thừa WDMamba"
-          : note}
-      </div>
+      {showNote ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 58,
+            bottom: 27,
+            fontSize: 17,
+            color: colors.muted,
+          }}
+        >
+          {note === undefined
+            ? "Minh họa nguyên lý • Kiến trúc kế thừa WDMamba"
+            : note}
+        </div>
+      ) : null}
     </AbsoluteFill>
   );
 };

@@ -14,7 +14,7 @@ const OpeningInner = () => {
       chapter="01 / BÀI TOÁN"
       title="Một ảnh rõ hơn bắt đầu từ đâu?"
       subtitle="Sương làm mất tương phản, màu sắc và chi tiết."
-      note={null}
+      showNote={false}
     >
       <div style={{ position: "absolute", left: 58, top: 228 }}>
         <Wipe width={750} height={390} start={1.5} end={6} />
